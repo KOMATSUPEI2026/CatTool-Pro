@@ -20,8 +20,8 @@ export default function WelcomeOverlay() {
           <i className="bi bi-person"></i> 以訪客身分使用
         </button>
         <p className="welcome-hint">
-          登入後可將文件、術語庫與翻譯記憶儲存至 Google 試算表；<br />
-          訪客模式資料僅存於瀏覽器記憶體，重新整理即清空。
+          登入後可將文件、術語庫與翻譯記憶儲存至雲端資料庫（登入會離開再返回本頁）；<br />
+          訪客模式資料保存在此瀏覽器，換裝置或清除瀏覽資料前請先匯出 JSON。
         </p>
       </div>
     </div>

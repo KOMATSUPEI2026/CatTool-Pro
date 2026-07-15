@@ -7,3 +7,7 @@ tests/
 node_modules/
 dist/
 .DS_Store
+
+# Supabase 連線設定（anon key 雖屬公開金鑰，仍以 env 管理：本機 .env.local、部署走 Actions secret）
+.env.local
+.env*.local

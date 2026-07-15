@@ -69,8 +69,7 @@ export const useStore = create(persist((set) => ({
   termTip: null,            // 術語提示卡 { segId, termId, ja, zh, anchor }；跨元件互斥（標點快捷鍵讓路）用
   textScale: 1,             // 防老花模式 ×scale（1/1.2/1.4）
   // 雲端層（讀寫邏輯在 cloud.js，這裡只放需要驅動畫面的狀態）
-  auth: { token: null, email: null, expiresAt: 0 },   // Google 授權（token 約 1 小時失效）
-  authExpiredPause: false,  // 授權過期且有未儲存變更＝自動儲存暫停中（頂欄常駐橫幅開關；cloud.js 偵測時設定）
+  auth: { token: null, email: null },   // Supabase Auth session 映射（SDK 自動續期，無過期防護需求）
   cloudBusy: false,         // 儲存進行中（鎖「儲存至雲端」按鈕＋重入守門）
   welcomeVisible: true,     // 歡迎面板（登入成功或選訪客後收起）
   confirmModal: null,       // 全域確認 Modal { title, text, cancelLabel, okLabel, onOk, wide }；雲端層等元件外程式碼用
@@ -86,7 +85,6 @@ export const useStore = create(persist((set) => ({
   setIngestLang: (which, value) => set(which === 'src' ? { ingestSrcLang: value } : { ingestTgtLang: value }),
 
   setAuth: (patch) => set(s => ({ auth: { ...s.auth, ...patch } })),
-  setAuthExpiredPause: (v) => set({ authExpiredPause: v }),
   hideWelcome: () => set({ welcomeVisible: false }),
   openConfirm: (cfg) => set({ confirmModal: cfg }),
   closeConfirm: () => set({ confirmModal: null }),
@@ -306,7 +304,7 @@ export const useStore = create(persist((set) => ({
   name: PERSIST_KEY,
   version: 1,
   storage: lazyJSONStorage,
-  // 只持久化資料欄位；auth（token/expiresAt）與 UI 狀態一律排除，憑證不落地
+  // 只持久化資料欄位；auth 與 UI 狀態一律排除，憑證不落地（Supabase session 由 SDK 自行管理）
   partialize: (s) => ({
     documents: s.documents,
     termBase: s.termBase,

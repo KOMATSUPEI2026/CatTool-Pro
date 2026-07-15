@@ -1,0 +1,9 @@
+# 文件與測試留在本機
+CLAUDE.md
+docs/
+tests/
+
+# React 建置產物與依賴
+node_modules/
+dist/
+.DS_Store

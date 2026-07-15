@@ -1,0 +1,337 @@
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useStore } from '../store.js';
+import { cid, docStats, docPair, downloadJSON, findTermHits, langName } from '../utils.js';
+import { autoGrow, autoGrowAll, insertIntoSeg } from '../workActions.js';
+import ConfirmModal from '../components/ConfirmModal.jsx';
+import TermTip from '../components/TermTip.jsx';
+import TermModal from '../components/TermModal.jsx';
+import { SegEditModal, SegOrderModal, SegMergeModal, SegAddModal, SegDeleteModal } from '../components/SegToolModals.jsx';
+
+const VIEW_MODES = [
+  { key: 'review',    label: '校閱模式' },
+  { key: 'translate', label: '翻譯模式' },
+  { key: 'readonly',  label: '純譯文模式' }
+];
+
+/* 原文加術語高亮（最長優先、不重疊）；hover／點擊開術語提示卡 */
+function HighlightedSrc({ text, segId, termBase, doc }) {
+  const setTermTip = useStore(s => s.setTermTip);
+  const hits = findTermHits(text, termBase, doc);
+  if (hits.length === 0) return text;
+
+  const openTip = (h, e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setTermTip({
+      segId, termId: h.term.id, ja: h.term.ja, zh: h.term.zh,
+      anchor: { top: r.top, bottom: r.bottom, left: r.left }
+    });
+  };
+  const out = [];
+  let cursor = 0;
+  hits.forEach((h, i) => {
+    if (h.start > cursor) out.push(text.slice(cursor, h.start));
+    out.push(
+      <span key={i} className="term-hit" data-seg={segId} data-termid={h.term.id}
+            onMouseOver={e => openTip(h, e)}
+            onClick={e => { e.stopPropagation(); openTip(h, e); }}>
+        {text.slice(h.start, h.end)}
+      </span>
+    );
+    cursor = h.end;
+  });
+  out.push(text.slice(cursor));
+  return out;
+}
+
+function SegRow({ seg, index, doc, active, viewKey }) {
+  const termBase = useStore(s => s.termBase);
+  const textScale = useStore(s => s.textScale);
+  const updateSegZh = useStore(s => s.updateSegZh);
+  const confirmSegment = useStore(s => s.confirmSegment);
+  const setLastFocusedSeg = useStore(s => s.setLastFocusedSeg);
+  const taRef = useRef(null);
+
+  // 隱藏面板 scrollHeight 為 0：只在分頁可見時量測；檢視模式/防老花切換會改寬度與字級，一併補算
+  useLayoutEffect(() => {
+    if (active) autoGrow(taRef.current);
+  }, [seg.zh, active, viewKey, textScale]);
+
+  return (
+    <div className={'seg' + (seg.confirmed ? ' confirmed' : '')}>
+      <div className="seg-num"><span className="badge">{index + 1}</span></div>
+      <div className="seg-body">
+        <div className="seg-src">
+          <div className="label"><span>原文 {langName(doc.srcLang || 'ja')}（{doc.srcLang || 'ja'}）</span></div>
+          <div className="src-text">
+            <HighlightedSrc text={seg.ja} segId={seg.id} termBase={termBase} doc={doc} />
+          </div>
+        </div>
+        <div className="seg-tgt">
+          <div className="label"><span>譯文 {langName(doc.tgtLang || 'zh-TW')}（{doc.tgtLang || 'zh-TW'}）</span></div>
+          <textarea ref={taRef} data-seg={seg.id} placeholder="輸入譯文，按 Tab 確認並存入記憶…"
+                    value={seg.zh || ''}
+                    onChange={e => updateSegZh(seg.id, e.target.value)}
+                    onFocus={() => setLastFocusedSeg(seg.id)}
+                    onKeyDown={e => {
+                      // Shift+Tab 是反向移動焦點，不觸發確認（避免往回瀏覽時誤存 TM）
+                      if (e.key === 'Tab' && !e.shiftKey) confirmSegment(seg.id, e.target.value);
+                    }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* 反白原文的「+ 新增術語」浮動按鈕（先隱形量寬再定位） */
+function SelectionAddButton({ sel, onAdd }) {
+  const btnRef = useRef(null);
+  const [pos, setPos] = useState(null);
+  useLayoutEffect(() => {
+    const btnW = btnRef.current.offsetWidth;
+    let top = sel.rect.top - 38;
+    if (top < 8) top = sel.rect.bottom + 8;
+    let left = sel.rect.left;
+    if (left + btnW > window.innerWidth - 8) left = window.innerWidth - btnW - 8;
+    setPos({ top, left });
+  }, [sel]);
+  return (
+    <button id="sel-add-btn" ref={btnRef} className="selection-add-btn"
+            style={pos ? { top: pos.top, left: pos.left } : { top: -9999, left: -9999 }}
+            onClick={e => { e.stopPropagation(); onAdd(); }}>
+      + 新增術語
+    </button>
+  );
+}
+
+export default function WorkTab() {
+  const documents = useStore(s => s.documents);
+  const termBase = useStore(s => s.termBase);
+  const currentDocId = useStore(s => s.currentDocId);
+  const currentTab = useStore(s => s.currentTab);
+  const srUndoSnapshot = useStore(s => s.srUndoSnapshot);
+  const activateTab = useStore(s => s.activateTab);
+  const setTermTip = useStore(s => s.setTermTip);
+  const resetConfirmed = useStore(s => s.resetConfirmed);
+  const executeSearchReplace = useStore(s => s.executeSearchReplace);
+  const undoSearchReplace = useStore(s => s.undoSearchReplace);
+  const addTerm = useStore(s => s.addTerm);
+  const patchTerm = useStore(s => s.patchTerm);
+  const deleteTerm = useStore(s => s.deleteTerm);
+  const showToast = useStore(s => s.showToast);
+
+  const [viewIdx, setViewIdx] = useState(0);
+  const [srQuery, setSrQuery] = useState('');
+  const [srReplace, setSrReplace] = useState('');
+  const [selBtn, setSelBtn] = useState(null);   // 反白新增術語 { text, rect }
+  const [modal, setModal] = useState(null);
+  // {type:'reset', n} | {type:'srConfirm', n} | {type:'term', term, prefillJa} | {type:'delTerm', term}
+  // | {type:'segEdit'|'segOrder'|'segMerge'|'segAdd'|'segDelete'}
+
+  const doc = documents.find(d => d.id === currentDocId) || null;
+  const active = currentTab === 'work';
+  const st = doc ? docStats(doc) : { draftPct: 0, confirmedPct: 0 };
+  const viewKey = VIEW_MODES[viewIdx].key;
+
+  const kw = srQuery.trim();
+  const srCount = (doc && kw)
+    ? doc.segments.reduce((n, seg) => n + ((seg.zh || '').split(kw).length - 1), 0)
+    : 0;
+
+  /* 反白原文 → 浮動新增術語按鈕（vanilla 的 document 層監聽原樣搬遷） */
+  useEffect(() => {
+    const onMouseUp = (e) => {
+      if (e.target.closest('#sel-add-btn') || e.target.closest('.modal-overlay')) return;
+      setTimeout(() => {
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed) { setSelBtn(null); return; }
+        const anchorEl = sel.anchorNode && sel.anchorNode.nodeType === 3 ? sel.anchorNode.parentElement : sel.anchorNode;
+        const srcEl = anchorEl ? anchorEl.closest('.src-text') : null;
+        if (!srcEl) { setSelBtn(null); return; }
+        const text = sel.toString().trim();
+        if (!text) { setSelBtn(null); return; }
+        const r = sel.getRangeAt(0).getBoundingClientRect();
+        setSelBtn({ text, rect: { top: r.top, bottom: r.bottom, left: r.left } });
+      }, 0);
+    };
+    const onMouseDown = (e) => {
+      if (e.target.id === 'sel-add-btn') return;
+      if (!e.target.closest('.src-text')) setSelBtn(null);
+    };
+    document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('mousedown', onMouseDown);
+    return () => {
+      document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('mousedown', onMouseDown);
+    };
+  }, []);
+
+  /* 視窗縮放改變欄寬 → 全部譯文框補量一次（150ms debounce，同 vanilla） */
+  useEffect(() => {
+    let timer = null;
+    const onResize = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => autoGrowAll('#seg-list textarea'), 150);
+    };
+    window.addEventListener('resize', onResize);
+    return () => { clearTimeout(timer); window.removeEventListener('resize', onResize); };
+  }, []);
+
+  const onSegTool = (type) => {
+    if (!doc) return;
+    if (type !== 'segAdd' && doc.segments.length === 0) { showToast('目前檔案沒有句段。'); return; }
+    if ((type === 'segOrder' || type === 'segMerge') && doc.segments.length < 2) {
+      showToast(type === 'segOrder' ? '至少需要兩個句段才能排序。' : '至少需要兩個句段才能合併。');
+      return;
+    }
+    setModal({ type });
+  };
+
+  const onResetConfirm = () => {
+    if (!doc) return;
+    const n = doc.segments.filter(s => s.confirmed).length;
+    if (n === 0) { showToast('目前檔案沒有已確認的句段。'); return; }
+    setModal({ type: 'reset', n });
+  };
+
+  const onReplace = () => {
+    if (!doc) { showToast('請先開啟一個檔案'); return; }
+    if (!kw) { showToast('請先在搜尋框輸入要搜尋的譯文字詞'); return; }
+    if (srCount === 0) { showToast('目前檔案的譯文中找不到「' + kw + '」'); return; }
+    setModal({ type: 'srConfirm', n: srCount });
+  };
+
+  const onUndo = () => {
+    if (!srUndoSnapshot) { showToast('目前沒有可復原的取代'); return; }
+    if (!documents.some(d => d.id === srUndoSnapshot.docId)) { showToast('找不到原檔案，無法復原'); }
+    undoSearchReplace();
+  };
+
+  const onExport = () => {
+    if (!doc) return;
+    const p = docPair(doc);
+    downloadJSON(doc.segments.map(s => ({
+      [p.src]: s.ja, [p.tgt]: s.zh,
+      confirmed: !!s.confirmed, source: doc.name, srcLang: p.src, tgtLang: p.tgt
+    })), (doc.name || 'segments') + '.json');
+  };
+
+  /* 術語 Modal 送出（新增/編輯共用；提示卡編輯與反白新增都走這裡） */
+  const onTermSubmit = (ja, zh, note) => {
+    if (modal.term) {
+      patchTerm(modal.term.id, { ja, zh, note });
+    } else {
+      const p = docPair(doc);
+      addTerm({ id: cid(), ja, zh, note, source: doc ? doc.name : '', srcLang: p.src, tgtLang: p.tgt });
+    }
+    setModal(null);
+  };
+
+  const anyShown = doc && doc.segments.some(seg => !kw || (seg.zh || '').includes(kw));
+
+  return (
+    <>
+      <div className="doc-context-bar">
+        <div className="doc-context-top">
+          <span><i className="bi bi-file-earmark-text"></i> 目前檔案：<span className="doc-name" id="current-doc-name">{doc ? doc.name : '—'}</span></span>
+          <span style={{ display: 'inline-flex', gap: 10 }}>
+            <button className="icon-btn" id="btn-back-projects" onClick={() => activateTab('projects')}>
+              <i className="bi bi-arrow-left"></i> 返回專案管理區
+            </button>
+            <button className="icon-btn" id="btn-reset-confirm" onClick={onResetConfirm}>
+              <i className="bi bi-arrow-counterclockwise"></i> 重置確認狀態
+            </button>
+            <button className="icon-btn" id="btn-seg-edit" title="編輯／分割原文" onClick={() => onSegTool('segEdit')}><i className="bi bi-pencil-square"></i></button>
+            <button className="icon-btn" id="btn-seg-reorder" title="重新排列原文" onClick={() => onSegTool('segOrder')}><i className="bi bi-arrow-down-up"></i></button>
+            <button className="icon-btn" id="btn-seg-merge" title="合併原文" onClick={() => onSegTool('segMerge')}><i className="bi bi-arrows-collapse"></i></button>
+            <button className="icon-btn" id="btn-seg-add" title="新增原文" onClick={() => onSegTool('segAdd')}><i className="bi bi-plus-lg"></i></button>
+            <button className="icon-btn" id="btn-seg-delete" title="刪除原文" onClick={() => onSegTool('segDelete')}><i className="bi bi-trash3"></i></button>
+          </span>
+        </div>
+        <div className="progress-row">
+          <span className="progress-label">翻譯進度</span>
+          <div className="progress-track"><div className="progress-fill fill-translate" id="pg-translate" style={{ width: st.draftPct + '%' }}></div></div>
+          <span className="progress-pct" id="pg-translate-pct">{st.draftPct}%</span>
+        </div>
+        <div className="progress-row">
+          <span className="progress-label">校對進度</span>
+          <div className="progress-track"><div className="progress-fill fill-confirm" id="pg-confirm" style={{ width: st.confirmedPct + '%' }}></div></div>
+          <span className="progress-pct" id="pg-confirm-pct">{st.confirmedPct}%</span>
+        </div>
+      </div>
+
+      <div className="view-toolbar">
+        <span className="hint">提示：選取原文中的文字可以新增術語・譯文欄按 Tab 鍵可確認並存入記憶・術語卡片顯示時 Mac 按 Ctrl+N、Win 按 Alt+N 快速帶入</span>
+        <button className="icon-btn" id="btn-view-mode"
+                onClick={() => { setViewIdx((viewIdx + 1) % VIEW_MODES.length); setTermTip(null); }}>
+          檢視：{VIEW_MODES[viewIdx].label} <i className="bi bi-arrow-left-right"></i>
+        </button>
+      </div>
+
+      <div className="sr-bar">
+        <span className="sr-label">搜尋譯文並取代：</span>
+        <input type="text" id="sr-query" placeholder="搜尋框" value={srQuery} onChange={e => setSrQuery(e.target.value)} />
+        <span className="sr-arrow"><i className="bi bi-arrow-right"></i></span>
+        <input type="text" id="sr-replace" placeholder="取代為…" value={srReplace} onChange={e => setSrReplace(e.target.value)} />
+        <button className="btn small vermilion" id="sr-replace-btn" onClick={onReplace}>取代</button>
+        <button className="btn small outline" id="sr-undo-btn" onClick={onUndo}>復原</button>
+        <span className="sr-count" id="sr-count">{kw ? `命中 ${srCount} 處` : ''}</span>
+      </div>
+
+      <div id="seg-list" className={'mode-' + viewKey}>
+        {doc && doc.segments.map((seg, i) =>
+          (!kw || (seg.zh || '').includes(kw)) &&
+            <SegRow key={seg.id} seg={seg} index={i} doc={doc} active={active} viewKey={viewKey} />)}
+        {doc && doc.segments.length > 0 && kw && !anyShown &&
+          <div className="empty">沒有譯文包含「{kw}」的句段。</div>}
+      </div>
+      <div className="empty" id="seg-empty"
+           style={{ display: (!doc || doc.segments.length === 0) ? 'block' : 'none' }}>
+        {doc ? '這個檔案沒有任何句段。' : '尚未開啟任何檔案。請先到「專案管理區」開啟一個檔案。'}
+      </div>
+
+      <div className="import-row" style={{ marginTop: 10, display: (doc && doc.segments.length > 0) ? 'flex' : 'none' }} id="export-row">
+        <span className="hint">完成的句段可匯出，銜接後續排版流程</span>
+        <button className="btn outline small" id="btn-export-work" onClick={onExport}>匯出 JSON</button>
+      </div>
+
+      <TermTip
+        onEdit={(term, prefillJa) => setModal({ type: 'term', term, prefillJa })}
+        onDelete={(term) => setModal({ type: 'delTerm', term })} />
+
+      {selBtn &&
+        <SelectionAddButton sel={selBtn}
+          onAdd={() => { setModal({ type: 'term', term: null, prefillJa: selBtn.text }); setSelBtn(null); }} />}
+
+      {modal?.type === 'term' &&
+        <TermModal term={modal.term} prefillJa={modal.prefillJa}
+                   onCancel={() => setModal(null)} onSubmit={onTermSubmit} />}
+
+      {modal?.type === 'delTerm' &&
+        <ConfirmModal title="刪除術語" cancelLabel="取消刪除" okLabel="確定刪除"
+                      onCancel={() => setModal(null)}
+                      onOk={() => { deleteTerm(modal.term.id); setModal(null); }}>
+          確定要刪除術語嗎？此操作無法復原。
+        </ConfirmModal>}
+
+      {modal?.type === 'reset' &&
+        <ConfirmModal title="重置確認狀態" cancelLabel="取消重置" okLabel="確定重置" wide
+                      onCancel={() => setModal(null)}
+                      onOk={() => { resetConfirmed(); setModal(null); }}>
+          有 {modal.n} 句已確認的句段將退回未確認。<br />譯文與翻譯記憶皆保留不動，請重新逐句按 Tab 校對。
+        </ConfirmModal>}
+
+      {modal?.type === 'srConfirm' &&
+        <ConfirmModal title="取代譯文" cancelLabel="取消取代" okLabel="確定取代"
+                      onCancel={() => setModal(null)}
+                      onOk={() => { executeSearchReplace(kw, srReplace); setModal(null); }}>
+          有 {modal.n} 處會被取代，句段會退回未確認狀態。
+        </ConfirmModal>}
+
+      {modal?.type === 'segEdit'   && <SegEditModal   doc={doc} onClose={() => setModal(null)} />}
+      {modal?.type === 'segOrder'  && <SegOrderModal  doc={doc} onClose={() => setModal(null)} />}
+      {modal?.type === 'segMerge'  && <SegMergeModal  doc={doc} onClose={() => setModal(null)} />}
+      {modal?.type === 'segAdd'    && <SegAddModal    doc={doc} onClose={() => setModal(null)} />}
+      {modal?.type === 'segDelete' && <SegDeleteModal doc={doc} onClose={() => setModal(null)} />}
+    </>
+  );
+}

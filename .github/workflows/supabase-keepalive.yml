@@ -1,0 +1,18 @@
+# Supabase 保活：免費方案閒置 7 天會自動暫停專案，每 3 天 ping 一次 REST API 算作活動
+# 注意：GitHub 對 60 天無 commit 的 repo 會自動停用排程 workflow（會寄通知信，點一下即可重啟）
+name: supabase-keepalive
+
+on:
+  schedule:
+    - cron: '0 0 */3 * *'   # 每 3 天 00:00 UTC（台北 08:00）
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST API
+        run: |
+          curl -sf "${{ secrets.VITE_SUPABASE_URL }}/rest/v1/folders?select=id&limit=1" \
+            -H "apikey: ${{ secrets.VITE_SUPABASE_ANON_KEY }}" > /dev/null
+          echo "Supabase ping OK"

@@ -1,5 +1,41 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import { cid, docPair, langJoiner } from './utils.js';
+
+/* ---- Phase 0 本機持久化：四大資料陣列鏡像到 localStorage ----
+   延遲序列化 storage：updateSegZh 逐鍵觸發 setState，整本書逐鍵 JSON.stringify 會卡打字，
+   故 setItem 只暫存物件參照（store 全面不可變更新，參照凍結安全），閒置 800ms 才序列化寫入；
+   關頁/重整由 beforeunload 補 flush，最大遺失窗口即 800ms */
+const PERSIST_KEY = 'catToolWorkData';
+const PERSIST_FLUSH_MS = 800;
+let _pendingPersist = null;
+let _persistTimer = null;
+function flushPersist(){
+  if(_persistTimer){ clearTimeout(_persistTimer); _persistTimer = null; }
+  if(!_pendingPersist) return;
+  try{
+    localStorage.setItem(_pendingPersist.name, JSON.stringify(_pendingPersist.value));
+  }catch(e){ /* 配額滿等寫入失敗：資料仍在記憶體與雲端流程，不中斷操作 */ }
+  _pendingPersist = null;
+}
+const lazyJSONStorage = {
+  getItem: (name) => {
+    try{
+      const raw = localStorage.getItem(name);
+      return raw ? JSON.parse(raw) : null;
+    }catch(e){ return null; }
+  },
+  setItem: (name, value) => {
+    _pendingPersist = { name, value };
+    if(_persistTimer) clearTimeout(_persistTimer);
+    _persistTimer = setTimeout(flushPersist, PERSIST_FLUSH_MS);
+  },
+  removeItem: (name) => {
+    _pendingPersist = null;
+    localStorage.removeItem(name);
+  }
+};
+window.addEventListener('beforeunload', flushPersist);
 
 /* 目前檔案的句段陣列替換（翻譯工作區各 action 共用；順帶蓋 updatedAt） */
 function withSegments(s, segments){
@@ -15,7 +51,7 @@ function withSegments(s, segments){
    tmSegments = [{ id, ja, zh, source, srcLang, tgtLang }]
    folders    = [{ id, name }]
    後續各輪把 vanilla 的資料變動函式逐一收成 actions */
-export const useStore = create((set) => ({
+export const useStore = create(persist((set) => ({
   documents: [],
   termBase: [],
   tmSegments: [],
@@ -265,5 +301,16 @@ export const useStore = create((set) => ({
       srUndoSnapshot: s.srUndoSnapshot?.docId === doc.id ? null : s.srUndoSnapshot,
       ...withSegments(s, doc.segments.filter(x => !idSet.has(x.id)))
     };
+  })
+}), {
+  name: PERSIST_KEY,
+  version: 1,
+  storage: lazyJSONStorage,
+  // 只持久化資料欄位；auth（token/expiresAt）與 UI 狀態一律排除，憑證不落地
+  partialize: (s) => ({
+    documents: s.documents,
+    termBase: s.termBase,
+    tmSegments: s.tmSegments,
+    folders: s.folders
   })
 }));

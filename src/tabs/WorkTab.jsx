@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useStore } from '../store.js';
 import { cid, docStats, docPair, downloadJSON, findTermHits, langName } from '../utils.js';
 import { autoGrow, autoGrowAll, insertIntoSeg } from '../workActions.js';
+import { saveSegmentNow } from '../cloud.js';
 import ConfirmModal from '../components/ConfirmModal.jsx';
 import TermTip from '../components/TermTip.jsx';
 import TermModal from '../components/TermModal.jsx';
@@ -74,7 +75,8 @@ function SegRow({ seg, index, doc, active, viewKey }) {
                     onFocus={() => setLastFocusedSeg(seg.id)}
                     onKeyDown={e => {
                       // Shift+Tab 是反向移動焦點，不觸發確認（避免往回瀏覽時誤存 TM）
-                      if (e.key === 'Tab' && !e.shiftKey) confirmSegment(seg.id, e.target.value);
+                      // Zustand set 同步完成，confirmSegment 後即存讀到的是確認後狀態
+                      if (e.key === 'Tab' && !e.shiftKey) { confirmSegment(seg.id, e.target.value); saveSegmentNow(seg.id); }
                     }} />
         </div>
       </div>

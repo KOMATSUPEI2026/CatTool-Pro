@@ -13,6 +13,7 @@ import ScrollCapsule from './components/ScrollCapsule.jsx';
 import { requestGoogleLogin, saveAllToCloud } from './cloud.js';
 import TmSidebar from './components/TmSidebar.jsx';
 import PvSidebar from './components/PvSidebar.jsx';
+import HistorySidebar from './components/HistorySidebar.jsx';
 import PunctBar from './components/PunctBar.jsx';
 import ShortcutsModal from './components/ShortcutsModal.jsx';
 
@@ -116,6 +117,7 @@ export default function App() {
 
       <TmSidebar />
       <PvSidebar />
+      <HistorySidebar />
       <PunctBar />
       <ScrollCapsule />
       <Toast />

@@ -1,8 +1,9 @@
 import { supabase } from './supabaseClient.js';
 import { useStore } from './store.js';
 
-/* 雲端層（Phase 1＝Supabase 版，行為等價 V45）：Supabase Auth（Google OAuth redirect）＋
-   五張表（folders/documents/segments/terms/tm）全量 upsert＋比對刪除消失列＋自動儲存機制。
+/* 雲端層（Phase 2＝逐句即存版）：Supabase Auth（Google OAuth redirect）＋
+   五張表（folders/documents/segments/terms/tm）全量 upsert＋比對刪除消失列＋自動儲存機制，
+   V48 起 Tab 確認逐句即存（saveSegmentNow）＋segment_history 單句歷史（DB trigger 寫、前端只讀）。
    V45 的 GIS 1 小時 token 整套防護（搶存/過期橫幅/401 重授權/暫停偵測）已隨 session 自動續期整段移除。
    與畫面相關的狀態（auth/cloudBusy/welcomeVisible/confirmModal）放 store，
    其餘（快照、計時器）留在本模組。所有資料庫請求走 db 物件（測試以假實作整組替換） */
@@ -107,6 +108,15 @@ export const db = {
   async deleteIds(table, ids){
     for(let i = 0; i < ids.length; i += CHUNK_DELETE)
       _ok(await supabase.from(table).delete().in('id', ids.slice(i, i + CHUNK_DELETE)));
+  },
+  // Phase 2：單句歷史（segment_history 由 DB trigger 寫入，前端只讀）；每句最多 5 筆
+  async fetchSegHistory(segmentId){
+    return _ok(await supabase.from('segment_history')
+      .select('id, zh, saved_at')
+      .eq('segment_id', segmentId)
+      .order('saved_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(5));
   }
 };
 
@@ -117,33 +127,38 @@ export const db = {
 const toSnakeKey = (k) => k.replace(/[A-Z]/g, c => '_' + c.toLowerCase());
 const rowToSnake = (obj) => Object.fromEntries(Object.entries(obj).map(([k, v]) => [toSnakeKey(k), v]));
 
+/* 單列組裝（全量儲存與逐句即存共用，欄位口徑一致） */
+const docRow = (d, i) => rowToSnake({
+  id: d.id, name: d.name, folderId: d.folderId || null,
+  srcLang: d.srcLang || '', tgtLang: d.tgtLang || '',
+  createdAt: new Date(d.createdAt || Date.now()).toISOString(),
+  updatedAt: new Date(d.updatedAt || Date.now()).toISOString(),
+  position: i
+});
+const segRow = (s, docId, j) => rowToSnake({
+  id: s.id, docId, position: j,
+  srcNo: s.srcNo === null || s.srcNo === undefined || s.srcNo === '' ? null : String(s.srcNo),
+  ja: s.ja || '', zh: s.zh || '',
+  confirmed: !!s.confirmed, tmId: s.tmId || null
+});
+const tmRow = (t, i) => rowToSnake({
+  id: t.id, ja: t.ja || '', zh: t.zh || '', source: t.source || '',
+  srcLang: t.srcLang || '', tgtLang: t.tgtLang || '', position: i
+});
+
 function serializeForCloud(){
   const { documents, termBase, tmSegments, folders } = st();
   const rows = { folders: [], documents: [], segments: [], terms: [], tm: [] };
   folders.forEach((f, i) => rows.folders.push({ id: f.id, name: f.name, position: i }));
   documents.forEach((d, i) => {
-    rows.documents.push(rowToSnake({
-      id: d.id, name: d.name, folderId: d.folderId || null,
-      srcLang: d.srcLang || '', tgtLang: d.tgtLang || '',
-      createdAt: new Date(d.createdAt || Date.now()).toISOString(),
-      updatedAt: new Date(d.updatedAt || Date.now()).toISOString(),
-      position: i
-    }));
-    d.segments.forEach((s, j) => rows.segments.push(rowToSnake({
-      id: s.id, docId: d.id, position: j,
-      srcNo: s.srcNo === null || s.srcNo === undefined || s.srcNo === '' ? null : String(s.srcNo),
-      ja: s.ja || '', zh: s.zh || '',
-      confirmed: !!s.confirmed, tmId: s.tmId || null
-    })));
+    rows.documents.push(docRow(d, i));
+    d.segments.forEach((s, j) => rows.segments.push(segRow(s, d.id, j)));
   });
   termBase.forEach((t, i) => rows.terms.push(rowToSnake({
     id: t.id, ja: t.ja || '', zh: t.zh || '', note: t.note || '', source: t.source || '',
     srcLang: t.srcLang || '', tgtLang: t.tgtLang || '', position: i
   })));
-  tmSegments.forEach((t, i) => rows.tm.push(rowToSnake({
-    id: t.id, ja: t.ja || '', zh: t.zh || '', source: t.source || '',
-    srcLang: t.srcLang || '', tgtLang: t.tgtLang || '', position: i
-  })));
+  tmSegments.forEach((t, i) => rows.tm.push(tmRow(t, i)));
   return rows;
 }
 
@@ -232,6 +247,61 @@ export async function saveAllToCloud(opts = {}){
   }
 }
 
+/* ---------------- Phase 2 逐句即存：Tab 確認當下即存該句 ----------------
+   範圍＝該句段列＋所屬文件列（updatedAt）＋確認產生/覆寫的 TM 列，各一筆 upsert；
+   雲端 trigger 只在「被覆蓋的舊值是已確認版本」時把舊譯文推進 segment_history（每句留 5 筆）。
+   訪客與全量儲存進行中一律靜默跳過（閒置/保底全量機制會補）；
+   文件或資料夾還沒上過雲端（FK 23503）表示單列補不齊，改觸發一次全量自動儲存 */
+export async function saveSegmentNow(segId){
+  const s = st();
+  if(!s.auth.token || s.cloudBusy) return;
+  const doc = s.documents.find(d => d.segments.some(x => x.id === segId));
+  if(!doc) return;
+  const docIdx = s.documents.indexOf(doc);
+  const segIdx = doc.segments.findIndex(x => x.id === segId);
+  const seg = doc.segments[segIdx];
+  const tmIdx = seg.tmId ? s.tmSegments.findIndex(t => t.id === seg.tmId) : -1;
+  try{
+    await db.upsert('documents', [docRow(doc, docIdx)]);   // 先文件後句段，守外鍵
+    await db.upsert('segments', [segRow(seg, doc.id, segIdx)]);
+    if(tmIdx >= 0) await db.upsert('tm', [tmRow(s.tmSegments[tmIdx], tmIdx)]);
+    patchSnapshotAfterSegSave(doc.id, segId, tmIdx >= 0 ? s.tmSegments[tmIdx].id : null);
+  }catch(err){
+    if(err && err.code === '23503'){ saveAllToCloud({ auto: true }); return; }
+    toast('句段即時儲存失敗：' + (err.message || String(err)));
+  }
+}
+
+/* 即存成功後把「已同步快照」修補到與雲端一致：只回填這次真的上傳的三列
+   （文件 updatedAt、該句段、該 TM 列）。若期間還有其他未儲存變動，快照仍對不上
+   ＝維持未同步狀態，交給閒置/保底全量儲存，不會誤判已存 */
+function patchSnapshotAfterSegSave(docId, segId, tmId){
+  try{
+    const snap = JSON.parse(_lastCloudSnapshot);
+    const s = st();
+    const doc = s.documents.find(d => d.id === docId);
+    const sd = snap.documents.find(d => d.id === docId);
+    if(!doc || !sd) return;   // 快照裡沒這份文件（如剛全量儲存前建立）：維持未同步
+    sd.updatedAt = doc.updatedAt;
+    const segIdx = doc.segments.findIndex(x => x.id === segId);
+    const i = sd.segments.findIndex(x => x.id === segId);
+    if(i >= 0) sd.segments[i] = doc.segments[segIdx];
+    else if(segIdx === sd.segments.length) sd.segments.push(doc.segments[segIdx]);
+    if(tmId){
+      const tmIdx = s.tmSegments.findIndex(t => t.id === tmId);
+      const k = snap.tmSegments.findIndex(t => t.id === tmId);
+      if(k >= 0) snap.tmSegments[k] = s.tmSegments[tmIdx];
+      else if(tmIdx === snap.tmSegments.length) snap.tmSegments.push(s.tmSegments[tmIdx]);
+    }
+    _lastCloudSnapshot = JSON.stringify(snap);
+  }catch(e){ /* 快照修補失敗只影響「是否再多存一次」，不影響資料正確性 */ }
+}
+
+/* 歷史側欄查詢：回傳 [{id, zh, saved_at}]，新→舊 */
+export function fetchSegHistory(segId){
+  return db.fetchSegHistory(segId);
+}
+
 /* ---------------- 載入：登入後自動比對雲端與本機 ----------------
    Phase 0 persist 後本機是首載前的資料源，返站每次都彈「覆蓋確認」會變騷擾，
    故先撈雲端做內容比對：一致→靜默視為已同步；本機空→直接載入；不一致→才彈確認（同 V45 防覆蓋精神）。
@@ -296,8 +366,8 @@ export async function tryAutoLoadFromCloud(){
 }
 
 /* ---------------- 雲端自動儲存與關頁守門：以資料快照比對偵測未儲存變更 ----------------
-   Supabase 無 Sheets 的每分鐘配額，debounce 不再是被逼的，但 Phase 1 求最小改動原樣保留；
-   Phase 2 改逐句即存後再精簡 */
+   V48 定案全數保留為保底：逐句即存只涵蓋 Tab 確認的句段，
+   未確認草稿、術語/TM/資料夾/句段整理等其餘變動仍靠這裡上雲 */
 const AUTO_SAVE_MS = 20 * 60 * 1000;   // 20 分鐘保底
 function cloudSnapshot(){
   const { documents, termBase, tmSegments, folders } = st();

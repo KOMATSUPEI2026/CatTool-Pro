@@ -35,6 +35,8 @@ ul, ol { list-style: none; padding: 0; }
     --font-display:"Noto Serif TC",serif;
     --font-src:"Noto Serif JP","Noto Serif TC",serif;
     --radius:6px;
+    --side-w:300px;
+    --wrap-w:1180px;
     --text-scale:1;
     --ui-pad-scale:1;
     --handle-active-tint:rgba(251,250,247,0.34);
@@ -74,7 +76,7 @@ ul, ol { list-style: none; padding: 0; }
     min-height:100vh;
     transition:background-color .2s, color .2s;
   }
-  .wrap{max-width:1180px;margin:0 auto;padding:28px 20px 80px;}
+  .wrap{max-width:var(--wrap-w);margin:0 auto;padding:28px 20px 80px;}
 
   /* header */
   header{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:22px;padding-bottom:18px;border-bottom:1px solid var(--line);}
@@ -182,7 +184,7 @@ ul, ol { list-style: none; padding: 0; }
 
   /* 快速置頂／置底膠囊（貼齊內容區右緣外側，僅專案管理區/翻譯工作區顯示） */
   .scroll-capsule{
-    position:fixed;right:max(12px, calc((100vw - 1180px) / 2 - 40px));
+    position:fixed;right:max(12px, calc((100vw - var(--wrap-w)) / 2 - 40px));
     top:50%;transform:translateY(-50%);z-index:80;
     display:none;flex-direction:column;
     background:var(--paper-card);border:1px solid var(--line);border-radius:20px;
@@ -315,7 +317,7 @@ ul, ol { list-style: none; padding: 0; }
   /* ---- 翻譯記憶側邊欄 ---- */
   .tm-sidebar{
     --side-scale:1;
-    position:fixed;top:0;right:0;bottom:0;width:300px;z-index:70;
+    position:fixed;top:0;right:0;bottom:0;width:var(--side-w);z-index:70;
     background:var(--paper-card);border-left:1px solid var(--line);
     box-shadow:-6px 0 20px rgba(0,0,0,.12);
     transform:translateX(100%);transition:transform .22s ease;
@@ -390,13 +392,13 @@ ul, ol { list-style: none; padding: 0; }
     display:none;transition:right .22s ease;
   }
   .tm-handle.visible{display:block;}
-  .tm-handle.shifted{right:300px;}
+  .tm-handle.shifted{right:var(--side-w);}
   #tm-handle-search{top:56%;background:var(--vermilion);}
 
   /* ---- 頁面檢視側邊欄（左側） ---- */
   .pv-sidebar{
     --side-scale:1;
-    position:fixed;top:0;left:0;bottom:0;width:300px;z-index:70;
+    position:fixed;top:0;left:0;bottom:0;width:var(--side-w);z-index:70;
     background:var(--paper-card);border-right:1px solid var(--line);
     box-shadow:6px 0 20px rgba(0,0,0,.12);
     transform:translateX(-100%);transition:transform .22s ease;
@@ -457,7 +459,7 @@ ul, ol { list-style: none; padding: 0; }
     display:none;transition:left .22s ease;
   }
   .pv-handle.visible{display:block;}
-  .pv-handle.shifted{left:300px;}
+  .pv-handle.shifted{left:var(--side-w);}
   #pv-handle-adjacent{top:38%;background:var(--seal);}
   #pv-handle-specific{top:56%;background:var(--vermilion);}
   .tm-handle.active, .pv-handle.active{

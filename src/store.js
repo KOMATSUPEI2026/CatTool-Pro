@@ -68,9 +68,13 @@ export const useStore = create(persist((set) => ({
   srUndoSnapshot: null,     // 搜尋取代的復原快照 { docId, items:[{segId, zh, confirmed, tmId}] }
   termTip: null,            // 術語提示卡 { segId, termId, ja, zh, anchor }；跨元件互斥（標點快捷鍵讓路）用
   textScale: 1,             // 防老花模式 ×scale（1/1.2/1.4）
+  // 字級模式（V51）：desktop＝12/14/16/18/26、laptop＝10/12/14/16/24（27 吋與 13 吋螢幕各有舒適刻度）
+  // 屬於裝置偏好：獨立鍵存 localStorage（不走 persist——那是工作資料的鏡像）
+  fontMode: (() => { try{ return localStorage.getItem('catToolFontMode') === 'laptop' ? 'laptop' : 'desktop'; }catch(e){ return 'desktop'; } })(),
   // 雲端層（讀寫邏輯在 cloud.js，這裡只放需要驅動畫面的狀態）
   auth: { token: null, email: null },   // Supabase Auth session 映射（SDK 自動續期，無過期防護需求）
   cloudBusy: false,         // 儲存進行中（鎖「儲存至雲端」按鈕＋重入守門）
+  cloudFlashSeq: 0,         // 全量儲存成功遞增：雲端鈕短暫轉實心雲 icon（V51）
   welcomeVisible: true,     // 歡迎面板（登入成功或選訪客後收起）
   confirmModal: null,       // 全域確認 Modal { title, text, cancelLabel, okLabel, onOk, wide }；雲端層等元件外程式碼用
 
@@ -81,6 +85,11 @@ export const useStore = create(persist((set) => ({
   cycleTextScale: () => set(s => {
     const scales = [1, 1.2, 1.4];
     return { textScale: scales[(scales.indexOf(s.textScale) + 1) % scales.length], termTip: null };
+  }),
+  toggleFontMode: () => set(s => {
+    const next = s.fontMode === 'desktop' ? 'laptop' : 'desktop';
+    try{ localStorage.setItem('catToolFontMode', next); }catch(e){ /* 無痕模式等寫入失敗：本次仍生效 */ }
+    return { fontMode: next, termTip: null };
   }),
   setIngestLang: (which, value) => set(which === 'src' ? { ingestSrcLang: value } : { ingestTgtLang: value }),
 

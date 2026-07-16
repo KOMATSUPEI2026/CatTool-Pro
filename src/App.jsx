@@ -11,6 +11,7 @@ import WelcomeOverlay from './components/WelcomeOverlay.jsx';
 import AccountModal from './components/AccountModal.jsx';
 import ScrollCapsule from './components/ScrollCapsule.jsx';
 import { requestGoogleLogin, saveAllToCloud } from './cloud.js';
+import { autoGrowAll } from './workActions.js';
 import TmSidebar from './components/TmSidebar.jsx';
 import PvSidebar from './components/PvSidebar.jsx';
 import HistorySidebar from './components/HistorySidebar.jsx';
@@ -35,21 +36,41 @@ export default function App() {
   const docCount    = useStore(s => s.documents.length);
   const textScale   = useStore(s => s.textScale);
   const cycleTextScale = useStore(s => s.cycleTextScale);
+  const fontMode    = useStore(s => s.fontMode);
+  const toggleFontMode = useStore(s => s.toggleFontMode);
   const auth         = useStore(s => s.auth);
   const cloudBusy    = useStore(s => s.cloudBusy);
+  const cloudFlashSeq = useStore(s => s.cloudFlashSeq);
   const confirmModal = useStore(s => s.confirmModal);
   const closeConfirm = useStore(s => s.closeConfirm);
 
   const [darkMode, setDarkMode] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showAccount, setShowAccount] = useState(false);
+  // 儲存成功短暫轉實心雲（同 Toast 2.4s 節奏），時間到彈回空心
+  const [cloudFilled, setCloudFilled] = useState(false);
+  useEffect(() => {
+    if (!cloudFlashSeq) return;
+    setCloudFilled(true);
+    const t = setTimeout(() => setCloudFilled(false), 2400);
+    return () => clearTimeout(t);
+  }, [cloudFlashSeq]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
   }, [darkMode]);
+  /* 字級相關屬性寫上 <html> 後譯文框要補量高度：SegRow 自己的 useLayoutEffect 跑在
+     這裡之前（量到的還是舊字級，屬性生效後長譯文會爆框——V51 修正），
+     故屬性設定完（新字級已生效）再 autoGrowAll；非工作分頁不量（display:none 陷阱），
+     切回時 SegRow 的 active effect 會補算 */
   useEffect(() => {
     document.documentElement.setAttribute('data-text-scale', String(textScale));
+    if (useStore.getState().currentTab === 'work') autoGrowAll('#seg-list textarea');
   }, [textScale]);
+  useEffect(() => {
+    document.documentElement.setAttribute('data-font-mode', fontMode);
+    if (useStore.getState().currentTab === 'work') autoGrowAll('#seg-list textarea');
+  }, [fontMode]);
 
   return (
     <div className="wrap">
@@ -67,29 +88,38 @@ export default function App() {
             <span>記憶句段　<b>{tmCount}</b></span>
             <span>文件數　<b>{docCount}</b></span>
           </div>
+          {/* 頂列一律純 icon＋data-tip hover 說明（V51 微調，Termsoup 式） */}
           <div className="header-actions">
             <button className="icon-btn" id="btn-account"
-                    title={auth.token ? '點擊登出 Google 帳號' : '點擊連結 Google 帳號'}
+                    data-tip={auth.token ? `已登入 ${auth.email || 'Google 帳號'}：點擊開帳號選單` : '訪客模式：點擊登入 Google 帳號'}
                     onClick={() => {
                       if (!auth.token) { requestGoogleLogin().catch(() => {}); return; }
                       setShowAccount(true);
                     }}>
               <i className={'bi ' + (auth.token ? 'bi-person-check' : 'bi-person')}></i>
-              {' '}{auth.token ? (auth.email || '已連結 Google') : '訪客模式'}
             </button>
-            <button className="icon-btn" id="btn-shortcuts" onClick={() => setShowShortcuts(true)}>
-              <i className="bi bi-keyboard"></i> 快捷鍵
+            <button className="icon-btn" id="btn-shortcuts" data-tip="快捷鍵說明" onClick={() => setShowShortcuts(true)}>
+              <i className="bi bi-keyboard"></i>
             </button>
-            <button className="icon-btn" id="btn-dark-mode" onClick={() => setDarkMode(!darkMode)}>
-              <i className={'bi ' + (darkMode ? 'bi-sun' : 'bi-moon')}></i> {darkMode ? '亮色模式' : '暗黑模式'}
+            <button className="icon-btn" id="btn-dark-mode"
+                    data-tip={darkMode ? '切換亮色模式' : '切換暗黑模式'}
+                    onClick={() => setDarkMode(!darkMode)}>
+              <i className={'bi ' + (darkMode ? 'bi-sun' : 'bi-moon')}></i>
             </button>
-            <button className="icon-btn" id="btn-text-scale" onClick={cycleTextScale}>
-              <i className="bi bi-zoom-in"></i> 防老花模式：{textScale}x
+            <button className="icon-btn" id="btn-text-scale"
+                    data-tip={`防老花模式 ${textScale}x：點擊放大字級（1x→1.2x→1.4x）`}
+                    onClick={cycleTextScale}>
+              <i className="bi bi-zoom-in"></i>
             </button>
-            <button className="icon-btn" id="btn-cloud-save" disabled={cloudBusy}
-                    title="將文件、術語庫與翻譯記憶儲存至雲端資料庫"
+            <button className="icon-btn" id="btn-font-mode"
+                    data-tip={fontMode === 'desktop' ? '字級：桌機刻度，點擊切換筆電' : '字級：筆電刻度，點擊切換桌機'}
+                    onClick={toggleFontMode}>
+              <i className={'bi ' + (fontMode === 'desktop' ? 'bi-display' : 'bi-laptop')}></i>
+            </button>
+            <button className="icon-btn tip-right" id="btn-cloud-save" disabled={cloudBusy}
+                    data-tip={cloudBusy ? '儲存中…' : '將文件、術語與記憶儲存至雲端'}
                     onClick={() => { saveAllToCloud(); }}>
-              <i className="bi bi-cloud-arrow-up"></i> {cloudBusy ? '儲存中…' : '儲存至雲端'}
+              <i className={'bi ' + (cloudFilled ? 'bi-cloud-arrow-up-fill' : 'bi-cloud-arrow-up')}></i>
             </button>
           </div>
         </div>

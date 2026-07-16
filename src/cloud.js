@@ -258,6 +258,7 @@ export async function saveAllToCloud(opts = {}){
     const now = new Date();
     const hhmm = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
     toast(`${opts.auto ? '已自動儲存至雲端' : '已儲存至雲端'}（${documents.length} 份文件、${termBase.length} 條術語、${tmSegments.length} 句記憶｜${hhmm}）`);
+    useStore.setState(s => ({ cloudFlashSeq: s.cloudFlashSeq + 1 }));   // 雲端鈕短暫轉實心雲
   }catch(err){
     toast('儲存失敗：' + (err.message || String(err)));
   }finally{

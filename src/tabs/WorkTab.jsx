@@ -239,14 +239,14 @@ export default function WorkTab() {
             <button className="icon-btn" id="btn-back-projects" onClick={() => activateTab('projects')}>
               <i className="bi bi-arrow-left"></i> 返回專案管理區
             </button>
-            <button className="icon-btn" id="btn-reset-confirm" onClick={onResetConfirm}>
-              <i className="bi bi-arrow-counterclockwise"></i> 重置確認狀態
+            <button className="icon-btn" id="btn-reset-confirm" data-tip="重置確認狀態：全部句段退回未確認" onClick={onResetConfirm}>
+              <i className="bi bi-arrow-counterclockwise"></i>
             </button>
-            <button className="icon-btn" id="btn-seg-edit" title="編輯／分割原文" onClick={() => onSegTool('segEdit')}><i className="bi bi-pencil-square"></i></button>
-            <button className="icon-btn" id="btn-seg-reorder" title="重新排列原文" onClick={() => onSegTool('segOrder')}><i className="bi bi-arrow-down-up"></i></button>
-            <button className="icon-btn" id="btn-seg-merge" title="合併原文" onClick={() => onSegTool('segMerge')}><i className="bi bi-arrows-collapse"></i></button>
-            <button className="icon-btn" id="btn-seg-add" title="新增原文" onClick={() => onSegTool('segAdd')}><i className="bi bi-plus-lg"></i></button>
-            <button className="icon-btn" id="btn-seg-delete" title="刪除原文" onClick={() => onSegTool('segDelete')}><i className="bi bi-trash3"></i></button>
+            <button className="icon-btn" id="btn-seg-edit" data-tip="編輯／分割原文" onClick={() => onSegTool('segEdit')}><i className="bi bi-pencil-square"></i></button>
+            <button className="icon-btn" id="btn-seg-reorder" data-tip="重新排列原文" onClick={() => onSegTool('segOrder')}><i className="bi bi-arrow-down-up"></i></button>
+            <button className="icon-btn" id="btn-seg-merge" data-tip="合併原文" onClick={() => onSegTool('segMerge')}><i className="bi bi-arrows-collapse"></i></button>
+            <button className="icon-btn" id="btn-seg-add" data-tip="新增原文" onClick={() => onSegTool('segAdd')}><i className="bi bi-plus-lg"></i></button>
+            <button className="icon-btn tip-right" id="btn-seg-delete" data-tip="刪除原文" onClick={() => onSegTool('segDelete')}><i className="bi bi-trash3"></i></button>
           </span>
         </div>
         <div className="progress-row">
@@ -263,9 +263,10 @@ export default function WorkTab() {
 
       <div className="view-toolbar">
         <span className="hint">提示：選取原文中的文字可以新增術語・譯文欄按 Tab 鍵可確認並存入記憶・術語卡片顯示時 Mac 按 Ctrl+N、Win 按 Alt+N 快速帶入</span>
-        <button className="icon-btn" id="btn-view-mode"
+        <button className="icon-btn tip-right" id="btn-view-mode"
+                data-tip={`檢視模式：${VIEW_MODES[viewIdx].label}，點擊切換`}
                 onClick={() => { setViewIdx((viewIdx + 1) % VIEW_MODES.length); setTermTip(null); }}>
-          檢視：{VIEW_MODES[viewIdx].label} <i className="bi bi-arrow-left-right"></i>
+          <i className="bi bi-window-split"></i>
         </button>
       </div>
 

@@ -127,8 +127,13 @@ export const db = {
 const toSnakeKey = (k) => k.replace(/[A-Z]/g, c => '_' + c.toLowerCase());
 const rowToSnake = (obj) => Object.fromEntries(Object.entries(obj).map(([k, v]) => [toSnakeKey(k), v]));
 
-/* 單列組裝（全量儲存與逐句即存共用，欄位口徑一致） */
+/* Phase 3：本視窗識別碼——每列寫入都帶上，Realtime 收到事件時據此忽略「自己寫入的回聲」
+   （不忽略的話：本機打字比回聲新時，套用回聲會把譯文倒退回舊值） */
+export const CLIENT_ID = crypto.randomUUID();
+
+/* 單列組裝（全量儲存與逐句即存共用，欄位口徑一致；client_id 在此統一注入） */
 const docRow = (d, i) => rowToSnake({
+  clientId: CLIENT_ID,
   id: d.id, name: d.name, folderId: d.folderId || null,
   srcLang: d.srcLang || '', tgtLang: d.tgtLang || '',
   createdAt: new Date(d.createdAt || Date.now()).toISOString(),
@@ -136,12 +141,14 @@ const docRow = (d, i) => rowToSnake({
   position: i
 });
 const segRow = (s, docId, j) => rowToSnake({
+  clientId: CLIENT_ID,
   id: s.id, docId, position: j,
   srcNo: s.srcNo === null || s.srcNo === undefined || s.srcNo === '' ? null : String(s.srcNo),
   ja: s.ja || '', zh: s.zh || '',
   confirmed: !!s.confirmed, tmId: s.tmId || null
 });
 const tmRow = (t, i) => rowToSnake({
+  clientId: CLIENT_ID,
   id: t.id, ja: t.ja || '', zh: t.zh || '', source: t.source || '',
   srcLang: t.srcLang || '', tgtLang: t.tgtLang || '', position: i
 });
@@ -149,12 +156,13 @@ const tmRow = (t, i) => rowToSnake({
 function serializeForCloud(){
   const { documents, termBase, tmSegments, folders } = st();
   const rows = { folders: [], documents: [], segments: [], terms: [], tm: [] };
-  folders.forEach((f, i) => rows.folders.push({ id: f.id, name: f.name, position: i }));
+  folders.forEach((f, i) => rows.folders.push({ id: f.id, name: f.name, position: i, client_id: CLIENT_ID }));
   documents.forEach((d, i) => {
     rows.documents.push(docRow(d, i));
     d.segments.forEach((s, j) => rows.segments.push(segRow(s, d.id, j)));
   });
   termBase.forEach((t, i) => rows.terms.push(rowToSnake({
+    clientId: CLIENT_ID,
     id: t.id, ja: t.ja || '', zh: t.zh || '', note: t.note || '', source: t.source || '',
     srcLang: t.srcLang || '', tgtLang: t.tgtLang || '', position: i
   })));
@@ -162,7 +170,8 @@ function serializeForCloud(){
   return rows;
 }
 
-/* 讀取側：DB 列 → store 形狀（segments 依 doc_id 掛回 documents；欄位正規化同 V45 讀 Sheets） */
+/* 讀取側：DB 列 → store 形狀（segments 依 doc_id 掛回 documents；欄位正規化同 V45 讀 Sheets）
+   逐表轉換器抽出共用——全量載入與 Realtime 單列套用（applyRemoteChange）用同一把尺 */
 function segRowToStore(r){
   return {
     id: r.id,
@@ -171,6 +180,26 @@ function segRowToStore(r){
     ja: r.ja || '', zh: r.zh || '',
     confirmed: !!r.confirmed,
     tmId: r.tm_id || null
+  };
+}
+function docRowToStore(r){   // 不含 segments，由呼叫端掛
+  return {
+    id: r.id, name: r.name, folderId: r.folder_id || null,
+    srcLang: r.src_lang || '', tgtLang: r.tgt_lang || '',
+    createdAt: Date.parse(r.created_at) || Date.now(),
+    updatedAt: Date.parse(r.updated_at) || Date.now()
+  };
+}
+function termRowToStore(r){
+  return {
+    id: r.id, ja: r.ja || '', zh: r.zh || '', note: r.note || '', source: r.source || '',
+    srcLang: r.src_lang || '', tgtLang: r.tgt_lang || ''
+  };
+}
+function tmRowToStore(r){
+  return {
+    id: r.id, ja: r.ja || '', zh: r.zh || '', source: r.source || '',
+    srcLang: r.src_lang || '', tgtLang: r.tgt_lang || ''
   };
 }
 async function fetchAllFromCloud(){
@@ -182,21 +211,9 @@ async function fetchAllFromCloud(){
   });
   return {
     folders: t.folders.map(r => ({ id: r.id, name: r.name })),
-    documents: t.documents.map(r => ({
-      id: r.id, name: r.name, folderId: r.folder_id || null,
-      srcLang: r.src_lang || '', tgtLang: r.tgt_lang || '',
-      createdAt: Date.parse(r.created_at) || Date.now(),
-      updatedAt: Date.parse(r.updated_at) || Date.now(),
-      segments: segsByDoc.get(r.id) || []
-    })),
-    termBase: t.terms.map(r => ({
-      id: r.id, ja: r.ja || '', zh: r.zh || '', note: r.note || '', source: r.source || '',
-      srcLang: r.src_lang || '', tgtLang: r.tgt_lang || ''
-    })),
-    tmSegments: t.tm.map(r => ({
-      id: r.id, ja: r.ja || '', zh: r.zh || '', source: r.source || '',
-      srcLang: r.src_lang || '', tgtLang: r.tgt_lang || ''
-    }))
+    documents: t.documents.map(r => ({ ...docRowToStore(r), segments: segsByDoc.get(r.id) || [] })),
+    termBase: t.terms.map(termRowToStore),
+    tmSegments: t.tm.map(tmRowToStore)
   };
 }
 
@@ -204,6 +221,7 @@ async function fetchAllFromCloud(){
    不用 delete-all＋insert：Phase 2 的 segment_history 掛在 segments 外鍵 cascade 上，
    整刪重建會把歷史一併炸掉，故一開始就用 upsert 語意 */
 export async function saveAllToCloud(opts = {}){
+  if(opts.auto && _syncPendingCheck()) return;   // 同步斷線中：暫停全量自動存防舊蓋新，重連追趕後補存
   if(st().cloudBusy){ if(!opts.auto) toast('儲存進行中，請稍候…'); return; }
   if(!st().auth.token){
     if(opts.auto) return;   // 訪客不打擾（自動儲存守門，同 V45）
@@ -301,6 +319,129 @@ function patchSnapshotAfterSegSave(docId, segId, tmId){
 export function fetchSegHistory(segId){
   return db.fetchSegHistory(segId);
 }
+
+/* ---------------- Phase 3 即時同步：遠端變更套用層 ----------------
+   realtime.js（傳輸層）收到 postgres_changes 事件後呼叫 applyRemoteChange，
+   本模組負責把單列變更套進 store 與「已同步快照」（遠端變更＝雲端現狀，
+   不同步修補快照的話，本視窗會把別視窗的變更誤判成自己的未儲存變更）。
+   衝突規則＝最後寫入者贏（單人多視窗；已確認版本有 segment_history 兜底）。
+   刪除級聯不在前端重做：FK cascade / set null 由 Postgres 對受影響列另發事件 */
+
+// 對 store 形狀的資料集套用單列變更；回傳有變動的欄位 patch（無事可做回 null）
+function applyOpToDataset(ds, table, eventType, row){
+  const isDel = eventType === 'DELETE';
+  const upsertAt = (arr, item, pos) => {
+    const i = arr.findIndex(x => x.id === item.id);
+    const next = [...arr];
+    if(i >= 0) next[i] = item;
+    else next.splice(Math.min(pos ?? next.length, next.length), 0, item);
+    return next;
+  };
+  if(table === 'folders'){
+    if(isDel) return ds.folders.some(f => f.id === row.id)
+      ? { folders: ds.folders.filter(f => f.id !== row.id) } : null;
+    return { folders: upsertAt(ds.folders, { id: row.id, name: row.name }, row.position) };
+  }
+  if(table === 'documents'){
+    if(isDel) return ds.documents.some(d => d.id === row.id)
+      ? { documents: ds.documents.filter(d => d.id !== row.id) } : null;
+    const old = ds.documents.find(d => d.id === row.id);
+    const item = { ...docRowToStore(row), segments: old ? old.segments : [] };
+    return { documents: upsertAt(ds.documents, item, row.position) };
+  }
+  if(table === 'segments'){
+    if(isDel){   // DELETE 事件只帶主鍵，逐文件找
+      const doc = ds.documents.find(d => d.segments.some(x => x.id === row.id));
+      if(!doc) return null;
+      return { documents: ds.documents.map(d => d.id !== doc.id
+        ? d : { ...d, segments: d.segments.filter(x => x.id !== row.id) }) };
+    }
+    const doc = ds.documents.find(d => d.id === row.doc_id);
+    if(!doc) return null;   // 文件事件未到（正常寫入順序不會發生）：略過，交給重連追趕
+    return { documents: ds.documents.map(d => d.id !== doc.id
+      ? d : { ...d, segments: upsertAt(d.segments, segRowToStore(row), row.position) }) };
+  }
+  if(table === 'terms'){
+    if(isDel) return ds.termBase.some(t => t.id === row.id)
+      ? { termBase: ds.termBase.filter(t => t.id !== row.id) } : null;
+    return { termBase: upsertAt(ds.termBase, termRowToStore(row), row.position) };
+  }
+  if(table === 'tm'){
+    if(isDel) return ds.tmSegments.some(t => t.id === row.id)
+      ? { tmSegments: ds.tmSegments.filter(t => t.id !== row.id) } : null;
+    return { tmSegments: upsertAt(ds.tmSegments, tmRowToStore(row), row.position) };
+  }
+  return null;
+}
+
+export function applyRemoteChange(table, eventType, row){
+  if(!row || !row.id) return;
+  if(eventType !== 'DELETE' && row.client_id === CLIENT_ID) return;   // 自己寫入的回聲
+  const s = st();
+  const patch = applyOpToDataset(
+    { documents: s.documents, termBase: s.termBase, tmSegments: s.tmSegments, folders: s.folders },
+    table, eventType, row);
+  if(patch){
+    // 開啟中的文件被別視窗刪除：退回未開檔狀態（工作區顯示空狀態）
+    if(table === 'documents' && eventType === 'DELETE' && s.currentDocId === row.id){
+      patch.currentDocId = null;
+      patch.lastFocusedSegId = null;
+    }
+    if(s.srUndoSnapshot && (table === 'documents' || table === 'segments'))
+      patch.srUndoSnapshot = null;   // 取代復原快照對的是變更前句段，遠端一動一律作廢
+    useStore.setState(patch);
+  }
+  // 快照同樣套用（即使 store 無變化也套：快照可能落後一步）
+  try{
+    const snap = JSON.parse(_lastCloudSnapshot);
+    const snapPatch = applyOpToDataset(snap, table, eventType, row);
+    if(snapPatch) _lastCloudSnapshot = JSON.stringify({ ...snap, ...snapPatch });
+  }catch(e){ /* 快照修補失敗只影響「是否再多存一次」 */ }
+}
+
+/* 就地套用整份雲端資料（斷線追趕用）：不像 applyCloudData 會重置選取並跳分頁，
+   停留在目前畫面、開啟中的文件還在就不動 */
+function applyCloudDataInPlace(next){
+  useStore.setState(s => ({
+    documents: next.documents,
+    termBase: next.termBase,
+    tmSegments: next.tmSegments,
+    folders: next.folders,
+    currentDocId: next.documents.some(d => d.id === s.currentDocId) ? s.currentDocId : null,
+    srUndoSnapshot: null,
+    termTip: null
+  }));
+  _lastCloudSnapshot = cloudSnapshot();
+}
+
+/* 斷線重連追趕：比對「現在的雲端」vs「最後已知的雲端」（不是 vs 本機——
+   離線期間只有本機在改時，雲端沒動＝沒漏接，不該彈任何確認）。
+   雲端動了且本機乾淨→無感套用；兩邊都動→才彈衝突確認 */
+export async function catchUpAfterReconnect(){
+  const next = await fetchAllFromCloud();
+  const lastKnown = JSON.parse(_lastCloudSnapshot);
+  if(canonSnapshot(next) === canonSnapshot(lastKnown)) return;   // 斷線期間雲端沒動
+  if(!hasUnsavedChanges()){
+    applyCloudDataInPlace(next);
+    toast('已同步其他視窗／裝置的變更');
+    return;
+  }
+  st().openConfirm({
+    title:'雲端資料已變更',
+    text:'連線中斷期間，雲端（其他視窗或裝置）與本機都有變更。\n載入雲端會覆蓋本機未儲存的修改；\n保留本機則之後儲存會以本機為準回寫。',
+    cancelLabel:'保留本機', okLabel:'載入雲端（覆蓋本機）',
+    onOk: () => {
+      fetchAllFromCloud().then(applyCloudDataInPlace)
+        .catch(err => toast('雲端載入失敗：' + (err.message || String(err))));
+    },
+    wide: true
+  });
+}
+
+/* realtime.js 註冊「同步斷線中」查詢：斷線期間本視窗可能漏接別視窗的變更，
+   全量自動儲存會拿舊資料蓋掉雲端＝暫停（手動儲存與逐句即存照常，使用者明確動作） */
+let _syncPendingCheck = () => false;
+export function registerSyncPendingCheck(fn){ _syncPendingCheck = fn; }
 
 /* ---------------- 載入：登入後自動比對雲端與本機 ----------------
    Phase 0 persist 後本機是首載前的資料源，返站每次都彈「覆蓋確認」會變騷擾，

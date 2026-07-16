@@ -65,7 +65,7 @@ export default function TmTab() {
           <tbody id="tm-tbody">
             {rows.map(t => (
               <tr key={t.id}>
-                <td style={{ fontFamily: "'Noto Serif JP','Noto Serif TC',serif" }}>{t.ja}</td>
+                <td className="ja">{t.ja}</td>
                 <td>{t.zh}</td>
                 <td><span className="source-tag">{t.srcLang || 'ja'}&nbsp;▶&nbsp;{t.tgtLang || 'zh-TW'}</span></td>
                 <td><span className="source-tag">{t.source || '—'}</span></td>

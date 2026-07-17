@@ -58,8 +58,8 @@ export function logoutGoogle(){
 export function openLogoutConfirm(){
   st().openConfirm({
     title:'登出 Google',
-    text:'登出後回到訪客模式，畫面上的資料保留不動（仍存在此瀏覽器），\n之後的變更不會再自動儲存至雲端。',
-    cancelLabel:'取消', okLabel:'確定登出',
+    text:'登出後回到訪客模式，瀏覽器上的資料保留\n之後的變更不會再自動儲存至雲端',
+    cancelLabel:'取消登出', okLabel:'確定登出',
     onOk: logoutGoogle,
     wide: true
   });
@@ -145,7 +145,7 @@ const segRow = (s, docId, j) => rowToSnake({
   id: s.id, docId, position: j,
   srcNo: s.srcNo === null || s.srcNo === undefined || s.srcNo === '' ? null : String(s.srcNo),
   ja: s.ja || '', zh: s.zh || '',
-  confirmed: !!s.confirmed, tmId: s.tmId || null
+  confirmed: !!s.confirmed, reviewed: !!s.reviewed, tmId: s.tmId || null
 });
 const tmRow = (t, i) => rowToSnake({
   clientId: CLIENT_ID,
@@ -179,6 +179,7 @@ function segRowToStore(r){
          : (isNaN(Number(r.src_no)) ? r.src_no : Number(r.src_no)),
     ja: r.ja || '', zh: r.zh || '',
     confirmed: !!r.confirmed,
+    reviewed: !!r.reviewed,
     tmId: r.tm_id || null
   };
 }
@@ -453,7 +454,7 @@ function canonSnapshot(data){
     folders: data.folders.map(f => [f.id, f.name]),
     documents: data.documents.map(d => [d.id, d.name, d.folderId || '', d.srcLang || '', d.tgtLang || '',
       d.segments.map(s => [s.id, s.srcNo === null || s.srcNo === undefined ? '' : String(s.srcNo),
-                           s.ja || '', s.zh || '', !!s.confirmed, s.tmId || ''])]),
+                           s.ja || '', s.zh || '', !!s.confirmed, !!s.reviewed, s.tmId || ''])]),
     terms: data.termBase.map(t => [t.id, t.ja || '', t.zh || '', t.note || '', t.source || '', t.srcLang || '', t.tgtLang || '']),
     tm: data.tmSegments.map(t => [t.id, t.ja || '', t.zh || '', t.source || '', t.srcLang || '', t.tgtLang || ''])
   });

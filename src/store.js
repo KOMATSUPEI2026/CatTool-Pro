@@ -46,7 +46,8 @@ function withSegments(s, segments){
 }
 
 /* 資料模型原樣搬遷（欄位與 ja/zh 內部鍵名慣例不變，見 docs/cat-tool-handoff.md）：
-   documents = [{ id, name, folderId, srcLang, tgtLang, segments:[{id, ja, zh, confirmed, tmId, srcNo}], createdAt, updatedAt }]
+   documents = [{ id, name, folderId, srcLang, tgtLang, segments:[{id, ja, zh, confirmed, reviewed, tmId, srcNo}], createdAt, updatedAt }]
+   （V52 起 confirmed＝已翻譯、reviewed＝已校對；reviewed 不可領先 confirmed，舊資料缺 reviewed 視為 false）
    termBase   = [{ id, ja, zh, note, source, srcLang, tgtLang }]
    tmSegments = [{ id, ja, zh, source, srcLang, tgtLang }]
    folders    = [{ id, name }]
@@ -65,7 +66,8 @@ export const useStore = create(persist((set) => ({
   ingestTgtLang: '',
   // 翻譯工作區狀態
   lastFocusedSegId: null,   // 最後聚焦的句段（TM 側欄相似比對的基準）
-  srUndoSnapshot: null,     // 搜尋取代的復原快照 { docId, items:[{segId, zh, confirmed, tmId}] }
+  srUndoSnapshot: null,     // 搜尋取代的復原快照 { docId, items:[{segId, zh, confirmed, reviewed, tmId}] }
+  workMode: 'translate',    // 工作區模式（V52）：translate＝翻譯、review＝校對；決定 Tab/點徽章切的狀態
   termTip: null,            // 術語提示卡 { segId, termId, ja, zh, anchor }；跨元件互斥（標點快捷鍵讓路）用
   textScale: 1,             // 防老花模式 ×scale（1/1.2/1.4）
   // 字級模式（V51）：desktop＝12/14/16/18/26、laptop＝10/12/14/16/24（27 吋與 13 吋螢幕各有舒適刻度）
@@ -79,6 +81,7 @@ export const useStore = create(persist((set) => ({
   confirmModal: null,       // 全域確認 Modal { title, text, cancelLabel, okLabel, onOk, wide }；雲端層等元件外程式碼用
 
   activateTab: (key) => set({ currentTab: key, termTip: null }),
+  setWorkMode: (mode) => set({ workMode: mode, termTip: null }),
   openDoc: (docId) => set({ currentDocId: docId, currentTab: 'work' }),
   setLastFocusedSeg: (segId) => set({ lastFocusedSegId: segId }),
   setTermTip: (tip) => set({ termTip: tip }),
@@ -134,7 +137,7 @@ export const useStore = create(persist((set) => ({
     tmSegments: s.tmSegments.filter(t => t.id !== tmId),
     documents: s.documents.map(d => d.segments.some(seg => seg.tmId === tmId)
       ? { ...d, segments: d.segments.map(seg =>
-          seg.tmId === tmId ? { ...seg, tmId: null, confirmed: false } : seg) }
+          seg.tmId === tmId ? { ...seg, tmId: null, confirmed: false, reviewed: false } : seg) }
       : d)
   })),
   importTmSegments: (rows) => set(s => ({ tmSegments: [...s.tmSegments, ...rows] })),
@@ -147,24 +150,27 @@ export const useStore = create(persist((set) => ({
 
   // 譯文改動（打字/術語帶入/標點插入/側欄套用共用）：
   // V28 編輯即退回未確認，tmId 保留 → 重按 Tab 覆寫同一筆 TM，不產生重複紀錄
+  // V52：內容變了兩階段認證都失效，reviewed 一併退回
   updateSegZh: (segId, val) => set(s => {
     const doc = s.documents.find(d => d.id === s.currentDocId);
     if(!doc) return {};
     return withSegments(s, doc.segments.map(seg =>
-      seg.id === segId ? { ...seg, zh: val, confirmed: false } : seg));
+      seg.id === segId ? { ...seg, zh: val, confirmed: false, reviewed: false } : seg));
   }),
 
   // Tab 確認：進 TM 的唯一入口（核心設計決策 1）
-  confirmSegment: (segId, val) => set(s => {
+  // V52：review=true＝校對模式確認一次到位（confirmed＋reviewed 同時成立，TM 覆寫同筆）；
+  //      review=false＝翻譯模式確認，reviewed 維持原值（沒改稿重按 Tab 不摘掉已校對）
+  confirmSegment: (segId, val, review = false) => set(s => {
     const doc = s.documents.find(d => d.id === s.currentDocId);
     const seg = doc && doc.segments.find(x => x.id === segId);
     if(!seg) return {};
 
     if(!val.trim()){
-      // 譯文被清空：退回未確認、解除與 TM 的參照關係，
+      // 譯文被清空：退回未確認未校對、解除與 TM 的參照關係，
       // 但 TM 紀錄本身是歷史翻譯知識庫，保留不動、不自動刪除或清空
       return withSegments(s, doc.segments.map(x =>
-        x.id === segId ? { ...x, zh: val, confirmed: false, tmId: null } : x));
+        x.id === segId ? { ...x, zh: val, confirmed: false, reviewed: false, tmId: null } : x));
     }
 
     let tmSegments = s.tmSegments;
@@ -186,8 +192,25 @@ export const useStore = create(persist((set) => ({
     return {
       tmSegments, srUndoSnapshot,
       ...withSegments(s, doc.segments.map(x =>
-        x.id === segId ? { ...x, zh: val, confirmed: true, tmId } : x))
+        x.id === segId ? { ...x, zh: val, confirmed: true, reviewed: review ? true : !!x.reviewed, tmId } : x))
     };
+  }),
+
+  // 點徽章取消確認（翻譯模式 toggle off）：兩階段一併退回；tmId 保留 → 重確認覆寫同筆 TM
+  unconfirmSegment: (segId) => set(s => {
+    const doc = s.documents.find(d => d.id === s.currentDocId);
+    if(!doc) return {};
+    return withSegments(s, doc.segments.map(x =>
+      x.id === segId ? { ...x, confirmed: false, reviewed: false } : x));
+  }),
+
+  // 點徽章切換校對狀態（校對模式）：標記已校對以「已翻譯」為前提（reviewed 不可領先 confirmed）
+  setSegReviewed: (segId, on) => set(s => {
+    const doc = s.documents.find(d => d.id === s.currentDocId);
+    const seg = doc && doc.segments.find(x => x.id === segId);
+    if(!seg || (on && !seg.confirmed)) return {};
+    return withSegments(s, doc.segments.map(x =>
+      x.id === segId ? { ...x, reviewed: !!on } : x));
   }),
 
   // TM 側欄卡片 Tab：直接更新該筆翻譯記憶的譯文
@@ -195,15 +218,23 @@ export const useStore = create(persist((set) => ({
     tmSegments: s.tmSegments.map(t => t.id === tmId ? { ...t, zh: val } : t)
   })),
 
-  // 重置確認狀態：全文件退回未確認；tmId 保留 → 重按 Tab 覆寫同一筆 TM
+  // 重置翻譯進度（翻譯模式重置鈕）：全文件退回未翻譯，校對一併退回（reviewed 不可領先）；
+  // tmId 保留 → 重按 Tab 覆寫同一筆 TM
   resetConfirmed: () => set(s => {
     const doc = s.documents.find(d => d.id === s.currentDocId);
     if(!doc) return {};
     return {
       // 取代的復原快照存有舊的 confirmed 狀態，重置後不可再復原，一律作廢
       srUndoSnapshot: s.srUndoSnapshot?.docId === doc.id ? null : s.srUndoSnapshot,
-      ...withSegments(s, doc.segments.map(x => ({ ...x, confirmed: false })))
+      ...withSegments(s, doc.segments.map(x => ({ ...x, confirmed: false, reviewed: false })))
     };
+  }),
+
+  // 重置校對進度（校對模式重置鈕）：只退 reviewed，翻譯狀態與 TM 皆不動
+  resetReviewed: () => set(s => {
+    const doc = s.documents.find(d => d.id === s.currentDocId);
+    if(!doc) return {};
+    return withSegments(s, doc.segments.map(x => ({ ...x, reviewed: false })));
   }),
 
   /* ---- 搜尋譯文並取代（僅作用於目前檔案） ---- */
@@ -213,9 +244,9 @@ export const useStore = create(persist((set) => ({
     const snapshot = [];
     const segments = doc.segments.map(seg => {
       if(!(seg.zh||'').includes(query)) return seg;
-      snapshot.push({ segId: seg.id, zh: seg.zh, confirmed: seg.confirmed, tmId: seg.tmId });
-      // 受影響句段退回未確認、解除 TM 參照，TM 紀錄本身保留不動
-      return { ...seg, zh: seg.zh.split(query).join(replaceWith), confirmed: false, tmId: null };
+      snapshot.push({ segId: seg.id, zh: seg.zh, confirmed: seg.confirmed, reviewed: !!seg.reviewed, tmId: seg.tmId });
+      // 受影響句段退回未確認未校對、解除 TM 參照，TM 紀錄本身保留不動
+      return { ...seg, zh: seg.zh.split(query).join(replaceWith), confirmed: false, reviewed: false, tmId: null };
     });
     return { srUndoSnapshot: { docId: doc.id, items: snapshot }, ...withSegments(s, segments) };
   }),
@@ -231,7 +262,7 @@ export const useStore = create(persist((set) => ({
         ...d, updatedAt: Date.now(),
         segments: d.segments.map(seg => {
           const it = byId.get(seg.id);
-          return it ? { ...seg, zh: it.zh, confirmed: it.confirmed, tmId: it.tmId } : seg;
+          return it ? { ...seg, zh: it.zh, confirmed: it.confirmed, reviewed: !!it.reviewed, tmId: it.tmId } : seg;
         })
       })
     };
@@ -249,12 +280,12 @@ export const useStore = create(persist((set) => ({
       if(it.segId){
         const seg = doc.segments.find(x => x.id === it.segId);
         if(seg){
-          kept.push(seg.ja !== it.ja ? { ...seg, ja: it.ja, confirmed: false, tmId: null } : seg);
+          kept.push(seg.ja !== it.ja ? { ...seg, ja: it.ja, confirmed: false, reviewed: false, tmId: null } : seg);
           return;
         }
       }
       // 分割出的後半句：譯文留在前半句，這裡從空白開始
-      kept.push({ id: cid(), ja: it.ja, zh: '', confirmed: false, tmId: null });
+      kept.push({ id: cid(), ja: it.ja, zh: '', confirmed: false, reviewed: false, tmId: null });
     });
     return {
       srUndoSnapshot: s.srUndoSnapshot?.docId === doc.id ? null : s.srUndoSnapshot,
@@ -281,7 +312,7 @@ export const useStore = create(persist((set) => ({
       ...group[0],
       ja: group.map(x => x.ja).join(langJoiner(p.src)),
       zh: group.map(x => x.zh||'').filter(t => t.trim()).join(langJoiner(p.tgt)),
-      confirmed: false, tmId: null
+      confirmed: false, reviewed: false, tmId: null
     };
     const segments = [...doc.segments];
     segments.splice(indices[0], indices.length, first);
@@ -296,7 +327,7 @@ export const useStore = create(persist((set) => ({
     const doc = s.documents.find(d => d.id === s.currentDocId);
     if(!doc) return {};
     const segments = [...doc.segments];
-    segments.splice(pos, 0, { id: cid(), ja: text, zh: '', confirmed: false, tmId: null });
+    segments.splice(pos, 0, { id: cid(), ja: text, zh: '', confirmed: false, reviewed: false, tmId: null });
     return withSegments(s, segments);
   }),
 

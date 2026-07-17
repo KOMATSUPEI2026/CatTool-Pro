@@ -47,9 +47,13 @@ function HighlightedSrc({ text, segId, termBase, doc }) {
 function SegRow({ seg, index, doc, active, viewKey }) {
   const termBase = useStore(s => s.termBase);
   const textScale = useStore(s => s.textScale);
+  const workMode = useStore(s => s.workMode);
   const updateSegZh = useStore(s => s.updateSegZh);
   const confirmSegment = useStore(s => s.confirmSegment);
+  const unconfirmSegment = useStore(s => s.unconfirmSegment);
+  const setSegReviewed = useStore(s => s.setSegReviewed);
   const setLastFocusedSeg = useStore(s => s.setLastFocusedSeg);
+  const showToast = useStore(s => s.showToast);
   const taRef = useRef(null);
 
   // 隱藏面板 scrollHeight 為 0：只在分頁可見時量測；檢視模式/防老花切換會改寬度與字級，一併補算
@@ -57,9 +61,30 @@ function SegRow({ seg, index, doc, active, viewKey }) {
     if (active) autoGrow(taRef.current);
   }, [seg.zh, active, viewKey, textScale]);
 
+  /* 點徽章切換狀態（V52，Termsoup 式）：依工作模式切翻譯或校對；
+     標記完成一律要求譯文非空（confirmed 綁 TM，空句進 TM 是污染）；
+     校對模式點未翻譯句段＝一次到位（confirmed＋reviewed＋TM 覆寫同筆） */
+  const onBadgeClick = () => {
+    if (workMode === 'translate') {
+      if (seg.confirmed) unconfirmSegment(seg.id);
+      else if (!(seg.zh || '').trim()) { showToast('譯文為空白，無法標記為已翻譯。'); return; }
+      else confirmSegment(seg.id, seg.zh);
+    } else {
+      if (seg.reviewed) setSegReviewed(seg.id, false);
+      else if (seg.confirmed) setSegReviewed(seg.id, true);
+      else if (!(seg.zh || '').trim()) { showToast('譯文為空白，無法標記為已校對。'); return; }
+      else confirmSegment(seg.id, seg.zh, true);
+    }
+    saveSegmentNow(seg.id);
+  };
+
   return (
-    <div className={'seg' + (seg.confirmed ? ' confirmed' : '')}>
-      <div className="seg-num"><span className="badge">{index + 1}</span></div>
+    <div className={'seg' + (seg.confirmed ? ' confirmed' : '') + (seg.reviewed ? ' reviewed' : '')}>
+      <div className="seg-num">
+        {/* 氣泡提示會被 .seg 的 overflow:hidden 裁切，徽章用原生 title */}
+        <span className="badge" onClick={onBadgeClick}
+              title={workMode === 'translate' ? '點擊切換已翻譯狀態' : '點擊切換已校對狀態'}>{index + 1}</span>
+      </div>
       <div className="seg-body">
         <div className="seg-src">
           <div className="label"><span>原文 {langName(doc.srcLang || 'ja')}（{doc.srcLang || 'ja'}）</span></div>
@@ -76,7 +101,11 @@ function SegRow({ seg, index, doc, active, viewKey }) {
                     onKeyDown={e => {
                       // Shift+Tab 是反向移動焦點，不觸發確認（避免往回瀏覽時誤存 TM）
                       // Zustand set 同步完成，confirmSegment 後即存讀到的是確認後狀態
-                      if (e.key === 'Tab' && !e.shiftKey) { confirmSegment(seg.id, e.target.value); saveSegmentNow(seg.id); }
+                      // V52：校對模式 Tab＝一次到位（confirmed＋reviewed＋TM 覆寫同筆，改稿後不用切回翻譯模式）
+                      if (e.key === 'Tab' && !e.shiftKey) {
+                        confirmSegment(seg.id, e.target.value, workMode === 'review');
+                        saveSegmentNow(seg.id);
+                      }
                     }} />
         </div>
       </div>
@@ -111,9 +140,11 @@ export default function WorkTab() {
   const currentDocId = useStore(s => s.currentDocId);
   const currentTab = useStore(s => s.currentTab);
   const srUndoSnapshot = useStore(s => s.srUndoSnapshot);
-  const activateTab = useStore(s => s.activateTab);
+  const workMode = useStore(s => s.workMode);
+  const setWorkMode = useStore(s => s.setWorkMode);
   const setTermTip = useStore(s => s.setTermTip);
   const resetConfirmed = useStore(s => s.resetConfirmed);
+  const resetReviewed = useStore(s => s.resetReviewed);
   const executeSearchReplace = useStore(s => s.executeSearchReplace);
   const undoSearchReplace = useStore(s => s.undoSearchReplace);
   const addTerm = useStore(s => s.addTerm);
@@ -131,7 +162,7 @@ export default function WorkTab() {
 
   const doc = documents.find(d => d.id === currentDocId) || null;
   const active = currentTab === 'work';
-  const st = doc ? docStats(doc) : { draftPct: 0, confirmedPct: 0 };
+  const st = doc ? docStats(doc) : { confirmedPct: 0, reviewedPct: 0 };
   const viewKey = VIEW_MODES[viewIdx].key;
 
   const kw = srQuery.trim();
@@ -188,10 +219,11 @@ export default function WorkTab() {
     setModal({ type });
   };
 
+  // 重置進度（V52）：依工作模式各管各的——翻譯模式退翻譯（校對連動退）、校對模式只退校對
   const onResetConfirm = () => {
     if (!doc) return;
-    const n = doc.segments.filter(s => s.confirmed).length;
-    if (n === 0) { showToast('目前檔案沒有已確認的句段。'); return; }
+    const n = doc.segments.filter(s => workMode === 'translate' ? s.confirmed : s.reviewed).length;
+    if (n === 0) { showToast(workMode === 'translate' ? '目前檔案沒有已翻譯的句段。' : '目前檔案沒有已校對的句段。'); return; }
     setModal({ type: 'reset', n });
   };
 
@@ -213,7 +245,7 @@ export default function WorkTab() {
     const p = docPair(doc);
     downloadJSON(doc.segments.map(s => ({
       [p.src]: s.ja, [p.tgt]: s.zh,
-      confirmed: !!s.confirmed, source: doc.name, srcLang: p.src, tgtLang: p.tgt
+      confirmed: !!s.confirmed, reviewed: !!s.reviewed, source: doc.name, srcLang: p.src, tgtLang: p.tgt
     })), (doc.name || 'segments') + '.json');
   };
 
@@ -236,10 +268,22 @@ export default function WorkTab() {
         <div className="doc-context-top">
           <span><i className="bi bi-file-earmark-text"></i> 目前檔案：<span className="doc-name" id="current-doc-name">{doc ? doc.name : '—'}</span></span>
           <span style={{ display: 'inline-flex', gap: 10 }}>
-            <button className="icon-btn" id="btn-back-projects" onClick={() => activateTab('projects')}>
-              <i className="bi bi-arrow-left"></i> 返回專案管理區
-            </button>
-            <button className="icon-btn" id="btn-reset-confirm" data-tip="重置確認狀態：全部句段退回未確認" onClick={onResetConfirm}>
+            {/* 工作模式切換（V52，Termsoup 式）：取代返回鈕（返回走頂部分頁列）；決定 Tab/點徽章切的狀態 */}
+            <span className="wk-mode-switch" role="group">
+              <button className={'wk-mode-btn' + (workMode === 'translate' ? ' active' : '')} id="btn-mode-translate"
+                      data-tip="翻譯模式：Tab／點徽章＝確認翻譯並存入記憶"
+                      onClick={() => setWorkMode('translate')}>
+                <i className="bi bi-translate"></i>
+              </button>
+              <button className={'wk-mode-btn' + (workMode === 'review' ? ' active' : '')} id="btn-mode-review"
+                      data-tip="校對模式：Tab／點徽章＝標記已校對"
+                      onClick={() => setWorkMode('review')}>
+                <i className="bi bi-check-square-fill"></i>
+              </button>
+            </span>
+            <button className="icon-btn" id="btn-reset-confirm"
+                    data-tip={workMode === 'translate' ? '重置翻譯進度：全句段退回未翻譯' : '重置校對進度：全句段退回未校對'}
+                    onClick={onResetConfirm}>
               <i className="bi bi-arrow-counterclockwise"></i>
             </button>
             <button className="icon-btn" id="btn-seg-edit" data-tip="編輯／分割原文" onClick={() => onSegTool('segEdit')}><i className="bi bi-pencil-square"></i></button>
@@ -249,24 +293,26 @@ export default function WorkTab() {
             <button className="icon-btn tip-right" id="btn-seg-delete" data-tip="刪除原文" onClick={() => onSegTool('segDelete')}><i className="bi bi-trash3"></i></button>
           </span>
         </div>
+        {/* V52：進度全面改「明確標記制」——翻譯進度＝已翻譯（confirmed）、校對進度＝已校對（reviewed）；
+            舊制「有字就前進」的 draftPct 不再上進度條（狀態混淆源頭） */}
         <div className="progress-row">
           <span className="progress-label">翻譯進度</span>
-          <div className="progress-track"><div className="progress-fill fill-translate" id="pg-translate" style={{ width: st.draftPct + '%' }}></div></div>
-          <span className="progress-pct" id="pg-translate-pct">{st.draftPct}%</span>
+          <div className="progress-track"><div className="progress-fill fill-translate" id="pg-translate" style={{ width: st.confirmedPct + '%' }}></div></div>
+          <span className="progress-pct" id="pg-translate-pct">{st.confirmedPct}%</span>
         </div>
         <div className="progress-row">
           <span className="progress-label">校對進度</span>
-          <div className="progress-track"><div className="progress-fill fill-confirm" id="pg-confirm" style={{ width: st.confirmedPct + '%' }}></div></div>
-          <span className="progress-pct" id="pg-confirm-pct">{st.confirmedPct}%</span>
+          <div className="progress-track"><div className="progress-fill fill-confirm" id="pg-confirm" style={{ width: st.reviewedPct + '%' }}></div></div>
+          <span className="progress-pct" id="pg-confirm-pct">{st.reviewedPct}%</span>
         </div>
       </div>
 
       <div className="view-toolbar">
-        <span className="hint">提示：選取原文中的文字可以新增術語・譯文欄按 Tab 鍵可確認並存入記憶・術語卡片顯示時 Mac 按 Ctrl+N、Win 按 Alt+N 快速帶入</span>
+        <span className="hint">提示：選取原文中的文字可以新增術語・Mac：Ctrl+N、Win：Alt+N 快速帶入術語</span>
         <button className="icon-btn tip-right" id="btn-view-mode"
                 data-tip={`檢視模式：${VIEW_MODES[viewIdx].label}，點擊切換`}
                 onClick={() => { setViewIdx((viewIdx + 1) % VIEW_MODES.length); setTermTip(null); }}>
-          <i className="bi bi-window-split"></i>
+          <i className="bi bi-layout-wtf"></i>
         </button>
       </div>
 
@@ -316,11 +362,18 @@ export default function WorkTab() {
           確定要刪除術語嗎？此操作無法復原。
         </ConfirmModal>}
 
-      {modal?.type === 'reset' &&
-        <ConfirmModal title="重置確認狀態" cancelLabel="取消重置" okLabel="確定重置" wide
+      {modal?.type === 'reset' && workMode === 'translate' &&
+        <ConfirmModal title="重置翻譯進度" cancelLabel="取消重置" okLabel="確定重置" wide
                       onCancel={() => setModal(null)}
                       onOk={() => { resetConfirmed(); setModal(null); }}>
-          有 {modal.n} 句已確認的句段將退回未確認。<br />譯文與翻譯記憶皆保留不動，請重新逐句按 Tab 校對。
+          有 {modal.n} 句已翻譯（校對）句段將退回未翻譯。<br />譯文＆翻譯記憶皆保留，請重新逐句按 Tab 確認。
+        </ConfirmModal>}
+
+      {modal?.type === 'reset' && workMode === 'review' &&
+        <ConfirmModal title="重置校對進度" cancelLabel="取消重置" okLabel="確定重置" wide
+                      onCancel={() => setModal(null)}
+                      onOk={() => { resetReviewed(); setModal(null); }}>
+          有 {modal.n} 句已校對的句段將退回未校對。<br />翻譯狀態、譯文、翻譯記憶皆保留。
         </ConfirmModal>}
 
       {modal?.type === 'srConfirm' &&

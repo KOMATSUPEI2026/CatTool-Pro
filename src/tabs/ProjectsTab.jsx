@@ -18,8 +18,8 @@ function DocRow({ doc, folders, onAskDelete }) {
       <td>{doc.srcLang || 'ja'}&nbsp;▶&nbsp;{doc.tgtLang || 'zh-TW'}</td>
       <td>{st.jaChars}</td>
       <td>{st.zhChars}</td>
-      <td>{st.draftPct}%</td>
       <td>{st.confirmedPct}%</td>
+      <td>{st.reviewedPct}%</td>
       <td>{fmtDate(doc.createdAt)}</td>
       <td>{fmtDate(doc.updatedAt)}</td>
       <td style={{ whiteSpace: 'nowrap' }}>

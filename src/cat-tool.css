@@ -131,9 +131,24 @@ ul, ol { list-style: none; padding: 0; }
   .icon-btn{
     font-family:var(--font-ui);font-size:var(--fs-sm);font-weight:600;
     background:transparent;border:1px solid var(--line);color:var(--ink);
-    padding:6px 12px;border-radius:var(--radius-pill);cursor:pointer;transition:border-color .15s;
+    padding:6px 24px;border-radius:var(--radius-pill);cursor:pointer;transition:border-color .15s;
   }
   .icon-btn:hover{border-color:var(--vermilion);}
+
+  /* V52 工作模式切換（翻譯｜校對，Termsoup 式）：segmented 雙鈕；
+     active 色與進度條/徽章同系（翻譯朱紅、校對 teal）。
+     不用 overflow:hidden 收圓角（會裁掉 data-tip 氣泡），改逐鈕給半邊圓角 */
+  .wk-mode-switch{display:inline-flex;}
+  .wk-mode-btn{
+    font-family:var(--font-ui);font-size:var(--fs-sm);font-weight:600;
+    background:transparent;border:1px solid var(--line);color:var(--ink-soft);
+    padding:6px 12px;cursor:pointer;
+    transition:background .15s,color .15s,border-color .15s;
+  }
+  .wk-mode-btn:first-child{border-radius:var(--radius-pill) 0 0 var(--radius-pill);border-right:none;}
+  .wk-mode-btn:last-child{border-radius:0 var(--radius-pill) var(--radius-pill) 0;}
+  .wk-mode-btn.active{background:var(--vermilion);border-color:var(--vermilion);color:var(--on-accent);}
+  #btn-mode-review.active{background:var(--seal);border-color:var(--seal);color:var(--on-accent);}
 
   /* Termsoup 式 icon hover 說明（V51 微調）：純 icon 按鈕掛 data-tip 屬性＝說明文（一律一行），
      深色氣泡沿用 --tooltip-bg/--tooltip-text 雙主題 token；貼近右緣的按鈕加 .tip-right 防出界 */
@@ -324,6 +339,7 @@ ul, ol { list-style: none; padding: 0; }
   .btn.outline:hover{border-color:var(--vermilion);opacity:1;}
   .btn.vermilion{background:var(--vermilion);border-color:var(--vermilion);color:var(--on-accent);}
   .btn.small{padding:6px 12px;font-size:var(--fs-sm);}
+  .sr-bar .btn.small{padding:6px 24px;}   /* 取代/復原加寬（與 icon-btn 同步，V52 微調） */
 
   /* empty state */
   .empty{
@@ -349,8 +365,12 @@ ul, ol { list-style: none; padding: 0; }
     font-family:var(--font-display);font-weight:700;font-size:var(--fs-sm);
     border:2px solid var(--vermilion);color:var(--vermilion);background:transparent;
     transition:background .15s,color .15s,border-color .15s;
+    cursor:pointer;user-select:none;   /* V52：點徽章切換翻譯/校對狀態 */
   }
-  .seg.confirmed .seg-num .badge{background:var(--seal);border-color:var(--seal);color:var(--on-accent);}
+  /* V52 徽章三態與進度條同色系：空心＝未翻譯、朱紅＝已翻譯（confirmed）、teal＝已校對（reviewed）；
+     reviewed 必伴隨 confirmed，規則放後面蓋掉朱紅 */
+  .seg.confirmed .seg-num .badge{background:var(--vermilion);border-color:var(--vermilion);color:var(--on-accent);}
+  .seg.reviewed .seg-num .badge{background:var(--seal);border-color:var(--seal);color:var(--on-accent);}
   .seg-body{flex:1;display:flex;min-width:0;}
   .seg-src, .seg-tgt{padding:calc(14px * var(--text-scale)) calc(16px * var(--text-scale));flex:1;min-width:0;}
   .seg-src{border-right:1px solid var(--line);position:relative;}
@@ -417,6 +437,11 @@ ul, ol { list-style: none; padding: 0; }
   .tm-card-src .mini-label, .tm-card-tgt .mini-label{
     display:block;font-size:var(--fs-xs);color:var(--ink-soft);letter-spacing:.08em;margin-bottom:4px;
     font-family:var(--font-ui);
+  }
+  /* 聚焦句段連結中的 TM 卡片小圖釘（V52 微調）：同原文的無主舊紀錄並排時可辨識 */
+  .tm-card .tm-linked{
+    float:right;font-family:var(--font-ui);font-size:var(--fs-xs);font-weight:700;
+    color:var(--seal);letter-spacing:.04em;
   }
   .tm-card-tgt{padding:10px 12px;}
   .tm-card-tgt textarea{
@@ -701,7 +726,15 @@ ul, ol { list-style: none; padding: 0; }
   .modal-card{
     background:var(--paper-card);border:1px solid var(--line);border-radius:var(--radius-lg);
     padding:20px 22px;width:360px;max-width:90vw;box-shadow:var(--shadow-4);
+    position:relative;   /* 右上關閉 X 的定位基準 */
   }
+  /* Modal 關閉規範（V52 定案）：有「關閉視窗」功能的 Modal 一律右上 X icon，不用「關閉」按鈕 */
+  .modal-close-x{
+    position:absolute;top:14px;right:14px;
+    background:none;border:none;cursor:pointer;padding:4px;line-height:1;
+    font-size:var(--fs-lg);color:var(--ink-soft);transition:color .15s;
+  }
+  .modal-close-x:hover{color:var(--vermilion);}
   .modal-card.modal-card-wide{width:440px;}
   .modal-card h3{margin:0 0 14px;font-family:var(--font-display);font-size:var(--fs-lg);color:var(--ink);}
   .modal-field{margin-bottom:12px;}

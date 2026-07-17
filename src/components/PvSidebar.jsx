@@ -60,7 +60,7 @@ export default function PvSidebar() {
       const prev = idx > 0 ? documents[idx - 1] : null;
       const next = idx < documents.length - 1 ? documents[idx + 1] : null;
       body = (!prev && !next)
-        ? <div className="pv-empty">這是唯一的檔案，<br />沒有上一頁或下一頁可供檢視。</div>
+        ? <div className="pv-empty">這是唯一的檔案<br />沒有上一頁或下一頁可供檢視</div>
         : <>
             {prev ? <PvDocCards doc={prev} titlePrefix="上一頁" /> : <div className="pv-empty">（沒有上一頁）</div>}
             {next ? <PvDocCards doc={next} titlePrefix="下一頁" /> : <div className="pv-empty">（沒有下一頁）</div>}
@@ -71,7 +71,7 @@ export default function PvSidebar() {
     const kw = committed.trim().toLowerCase();
     let results;
     if (!kw) {
-      results = <div className="pv-empty">輸入檔名、語系代碼（如 en、zh-TW）<br />或原文／譯文內容，即可檢視符合的檔案。</div>;
+      results = <div className="pv-empty">輸入檔名、語系代碼或原文／譯文內容<br />即可檢視符合的檔案</div>;
     } else {
       const matches = documents.filter(d =>
         d.name.toLowerCase().includes(kw) ||
@@ -91,7 +91,7 @@ export default function PvSidebar() {
             {matches.length > MAX &&
               <div className="pv-empty">還有 {matches.length - MAX} 個符合的檔案，請輸入更精確的關鍵字。</div>}
           </>
-        : <div className="pv-empty">找不到符合的檔案或內容。</div>;
+        : <div className="pv-empty">找不到符合的檔案或內容</div>;
     }
     body = (
       <>

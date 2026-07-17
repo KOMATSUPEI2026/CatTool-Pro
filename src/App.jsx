@@ -107,12 +107,12 @@ export default function App() {
               <i className={'bi ' + (darkMode ? 'bi-sun' : 'bi-moon')}></i>
             </button>
             <button className="icon-btn" id="btn-text-scale"
-                    data-tip={`防老花模式 ${textScale}x：點擊放大字級（1x→1.2x→1.4x）`}
+                    data-tip={`防老花模式 ${textScale}x：點擊放大字級`}
                     onClick={cycleTextScale}>
               <i className="bi bi-zoom-in"></i>
             </button>
             <button className="icon-btn" id="btn-font-mode"
-                    data-tip={fontMode === 'desktop' ? '字級：桌機刻度，點擊切換筆電' : '字級：筆電刻度，點擊切換桌機'}
+                    data-tip={fontMode === 'desktop' ? '字級：桌機模式，點擊切換筆電' : '字級：筆電模式，點擊切換桌機'}
                     onClick={toggleFontMode}>
               <i className={'bi ' + (fontMode === 'desktop' ? 'bi-display' : 'bi-laptop')}></i>
             </button>

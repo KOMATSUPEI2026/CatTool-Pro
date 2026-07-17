@@ -90,7 +90,7 @@ export function SegEditModal({ doc, onClose }) {
 
   return (
     <SegToolModal title="編輯／分割句子"
-                  hint="可直接修改原文；游標放入句子內，再按 Enter 可分割句子。清空的句子送出後將被移除。"
+                  hint="可直接修改原文。游標放入句子內，再按 Enter 可分割句子。清空的句子送出後將被移除。"
                   error={error} listRef={listRef} onCancel={onClose} onSubmit={submit}>
       {items.map((it, i) => (
         <div className="seg-tool-item" key={i}>
@@ -129,7 +129,7 @@ export function SegOrderModal({ doc, onClose }) {
   };
 
   return (
-    <SegToolModal title="排序句子" hint="按住任一句段上下拖曳調整順序，按「送出」後生效。"
+    <SegToolModal title="排序句子" hint="按住任一句段上下拖曳調整順序，按「送出」後即刻生效。"
                   error="" listRef={listRef} onCancel={onClose}
                   onSubmit={() => { applySegOrder(order); autoSaveAfterSegTool(); onClose(); }}>
       <div onDragOver={onDragOver}>
@@ -161,7 +161,7 @@ export function SegMergeModal({ doc, onClose }) {
     const indices = doc.segments.map((s, i) => sel.has(s.id) ? i : -1).filter(i => i >= 0);
     if (indices.length < 2) { setError('請選取至少兩個句子。'); return; }
     if (!indices.every((v, k) => v === indices[0] + k)) {
-      setError('連續的句子才可合併，請選取連續的句子。'); return;
+      setError('相鄰的句子才可合併，請選取相鄰的句子。'); return;
     }
     mergeSegments([...sel]);
     autoSaveAfterSegTool();
@@ -169,7 +169,7 @@ export function SegMergeModal({ doc, onClose }) {
   };
 
   return (
-    <SegToolModal title="合併句子" hint="選取兩個以上「相鄰」的句子後送出；原文與譯文都會串接，合併後退回未確認。"
+    <SegToolModal title="合併句子" hint="選取兩個以上「相鄰」的句子後送出，原文與譯文都會串接，合併後退回未確認。"
                   error={error} onCancel={onClose} onSubmit={submit}>
       {doc.segments.map((seg, i) =>
         <SelectableItem key={seg.id} seg={seg} index={i} selected={sel.has(seg.id)} onToggle={() => toggle(seg.id)} />)}
@@ -203,7 +203,7 @@ export function SegAddModal({ doc, onClose }) {
 
   return (
     <SegToolModal title="新增句子"
-                  hint="點選插入位置，新句會新增在已勾選的句子之後，新增在首句位子除外；新句譯文空白、未確認。"
+                  hint="點選插入位置，會新增在已勾選的句子之後，新增在首句除外。新增的句子，譯文空白、未確認。"
                   error={error} onCancel={onClose} onSubmit={submit}
                   footer={<textarea className="seg-tool-newtext" placeholder="輸入新句原文…"
                                     value={text} onChange={e => setText(e.target.value)} />}>
@@ -227,7 +227,7 @@ export function SegDeleteModal({ doc, onClose }) {
   };
 
   return (
-    <SegToolModal title="刪除句子" hint="選取要刪除的句子後送出；刪除後無法復原，翻譯記憶紀錄保留不動。"
+    <SegToolModal title="刪除句子" hint="選取要刪除的句子後送出。刪除後無法復原，翻譯記憶的紀錄保持原樣。"
                   error={error} onCancel={onClose} onSubmit={submit}>
       {doc.segments.map((seg, i) =>
         <SelectableItem key={seg.id} seg={seg} index={i} selected={sel.has(seg.id)} onToggle={() => toggle(seg.id)}

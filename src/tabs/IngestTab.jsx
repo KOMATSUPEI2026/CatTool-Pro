@@ -45,7 +45,7 @@ export default function IngestTab() {
     addDocuments([{
       id: cid(), name, folderId: null,
       srcLang: src, tgtLang: tgt,
-      segments: parts.map(p => ({ id: cid(), ja: p, zh: '', confirmed: false, tmId: null })),
+      segments: parts.map(p => ({ id: cid(), ja: p, zh: '', confirmed: false, reviewed: false, tmId: null })),
       createdAt: now, updatedAt: now
     }]);
     setRawText('');
@@ -127,7 +127,7 @@ export default function IngestTab() {
       docs.push({
         id: cid(), name: uniqueDocName(baseName, [...documents, ...docs]), folderId: null,
         srcLang: staged.src, tgtLang: staged.tgt,
-        segments: sheet.rows.map(r => ({ id: cid(), ja: r.ja, zh: r.zh, confirmed: false, tmId: null, srcNo: r.srcNo })),
+        segments: sheet.rows.map(r => ({ id: cid(), ja: r.ja, zh: r.zh, confirmed: false, reviewed: false, tmId: null, srcNo: r.srcNo })),
         createdAt: now, updatedAt: now
       });
     });

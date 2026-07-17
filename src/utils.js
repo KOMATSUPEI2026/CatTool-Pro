@@ -12,18 +12,20 @@ export function fmtDate(ts){
 
 /* ja/zh 為內部儲存鍵名（歷史慣例），實際語言由 doc.srcLang/tgtLang 決定 */
 export function docStats(doc){
-  let jaChars=0, zhChars=0, draftCount=0, confirmedCount=0;
+  let jaChars=0, zhChars=0, draftCount=0, confirmedCount=0, reviewedCount=0;
   doc.segments.forEach(s=>{
     jaChars += s.ja.replace(/\s/g,'').length;
     zhChars += (s.zh||'').replace(/\s/g,'').length;
     if((s.zh||'').trim()) draftCount++;
     if(s.confirmed) confirmedCount++;
+    if(s.reviewed) reviewedCount++;
   });
   const total = doc.segments.length;
   return {
     jaChars, zhChars,
     draftPct: total ? Math.round(draftCount/total*100) : 0,
-    confirmedPct: total ? Math.round(confirmedCount/total*100) : 0
+    confirmedPct: total ? Math.round(confirmedCount/total*100) : 0,
+    reviewedPct: total ? Math.round(reviewedCount/total*100) : 0
   };
 }
 

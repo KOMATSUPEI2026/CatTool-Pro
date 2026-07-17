@@ -6,8 +6,9 @@ import { flushSync } from 'react-dom';
 
 const SIDE_SCALES = [1, 1.2, 1.4];
 
-/* TM 卡片（相似/搜尋兩模式共用）：Tab 更新記憶、Enter 套用至左側句段 */
-function TmCard({ t, score, scale, active }) {
+/* TM 卡片（相似/搜尋兩模式共用）：Tab 更新記憶、Enter 套用至左側句段
+   linked＝聚焦句段連結中的那筆（tmId 相符），掛小圖釘標示——同原文的無主舊紀錄並排時可辨識 */
+function TmCard({ t, score, scale, active, linked }) {
   const updateTmZh = useStore(s => s.updateTmZh);
   const updateSegZh = useStore(s => s.updateSegZh);
   const [val, setVal] = useState(t.zh);
@@ -40,9 +41,14 @@ function TmCard({ t, score, scale, active }) {
 
   return (
     <div className="tm-card" data-tmid={t.id}>
-      <div className="tm-card-src"><span className="mini-label">原文</span>{t.ja}</div>
+      <div className="tm-card-src">
+        <span className="mini-label">原文
+          {linked && <span className="tm-linked" title="聚焦句段連結中的翻譯記憶"><i className="bi bi-pin-angle"></i> 本句連結</span>}
+        </span>
+        {t.ja}
+      </div>
       <div className="tm-card-tgt">
-        <span className="mini-label">譯文（Tab 更新記憶・Enter 套用至左側）</span>
+        <span className="mini-label">譯文（Tab 更新・Enter 套用）</span>
         <textarea ref={taRef} data-tmid={t.id} value={val}
                   onChange={e => setVal(e.target.value)} onKeyDown={onKeyDown} />
       </div>
@@ -102,9 +108,10 @@ export default function TmSidebar() {
                onChange={e => { setQuery(e.target.value); if (!composingRef.current) setCommitted(e.target.value); }} />
         <div id="tm-search-results">
           {!kwT
-            ? <div className="tm-sidebar-empty">輸入原文或譯文關鍵字，<br />搜尋翻譯記憶。</div>
+            ? <div className="tm-sidebar-empty">輸入原文或譯文關鍵字<br />搜尋翻譯記憶</div>
             : found.length
-              ? found.map(t => <TmCard key={t.id} t={t} score={seg ? similarity(seg.ja, t.ja) : null} scale={scale} active={inWork} />)
+              ? found.map(t => <TmCard key={t.id} t={t} score={seg ? similarity(seg.ja, t.ja) : null} scale={scale} active={inWork}
+                                       linked={!!seg && seg.tmId === t.id} />)
               : <div className="tm-sidebar-empty">找不到符合的翻譯記憶。</div>}
         </div>
       </>
@@ -119,7 +126,8 @@ export default function TmSidebar() {
       .sort((a, b) => b.score - a.score)
       .slice(0, 8);
     body = matches.length
-      ? matches.map(m => <TmCard key={m.t.id} t={m.t} score={m.score} scale={scale} active={inWork} />)
+      ? matches.map(m => <TmCard key={m.t.id} t={m.t} score={m.score} scale={scale} active={inWork}
+                                 linked={seg.tmId === m.t.id} />)
       : <div className="tm-sidebar-empty">沒有與這一句相似的翻譯記憶。</div>;
   }
 

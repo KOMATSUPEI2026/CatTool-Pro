@@ -15,7 +15,7 @@ function PunctModal({ idx, value, onCancel, onSave }) {
       <div className="modal-card">
         <h3>設定快捷符號（第 {idx + 1} 格）</h3>
         <div className="modal-field">
-          <label>符號內容（最多 4 字；配對括號輸入整組如「」；留空＝清空格位）</label>
+          <label>符號內容（最多 4 字；留空＝清空格位）</label>
           <input type="text" id="punct-input" maxLength={4} ref={inputRef}
                  value={val} onChange={e => setVal(e.target.value)} />
         </div>

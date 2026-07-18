@@ -8,6 +8,7 @@ import TermTip from '../components/TermTip.jsx';
 import TermModal from '../components/TermModal.jsx';
 import { SegEditModal, SegOrderModal, SegMergeModal, SegAddModal, SegDeleteModal } from '../components/SegToolModals.jsx';
 import PagePreview from '../components/PagePreview.jsx';
+import TmSenseModal from '../components/TmSenseModal.jsx';
 
 const VIEW_MODES = [
   { key: 'review',    label: '校閱模式' },
@@ -188,7 +189,7 @@ export default function WorkTab() {
   const [selBtn, setSelBtn] = useState(null);   // 反白新增術語 { text, rect }
   const [modal, setModal] = useState(null);
   // {type:'reset', n} | {type:'srConfirm', n} | {type:'term', term, prefillJa} | {type:'delTerm', term}
-  // | {type:'segEdit'|'segOrder'|'segMerge'|'segAdd'|'segDelete'} | {type:'pagePreview'}
+  // | {type:'segEdit'|'segOrder'|'segMerge'|'segAdd'|'segDelete'} | {type:'pagePreview'} | {type:'tmSense'}
 
   const doc = documents.find(d => d.id === currentDocId) || null;
   const active = currentTab === 'work';
@@ -347,6 +348,11 @@ export default function WorkTab() {
 
       <div className="view-toolbar">
         <span className="hint">提示：選取原文中的文字可以新增術語・Mac：Ctrl+N、Win：Alt+N 快速帶入術語</span>
+        <button className="icon-btn" id="btn-tm-sense"
+                data-tip="翻譯記憶靈敏度：調整側欄顯示門檻"
+                onClick={() => { setTermTip(null); setModal({ type: 'tmSense' }); }}>
+          <i className="bi bi-sliders"></i>
+        </button>
         <button className="icon-btn" id="btn-page-preview"
                 data-tip="整頁預覽：原文與譯文整頁通讀"
                 onClick={onPagePreview}>
@@ -427,6 +433,8 @@ export default function WorkTab() {
         </ConfirmModal>}
 
       {modal?.type === 'pagePreview' && <PagePreview doc={doc} onClose={() => setModal(null)} />}
+
+      {modal?.type === 'tmSense' && <TmSenseModal onClose={() => setModal(null)} />}
 
       {modal?.type === 'segEdit'   && <SegEditModal   doc={doc} onClose={() => setModal(null)} />}
       {modal?.type === 'segOrder'  && <SegOrderModal  doc={doc} onClose={() => setModal(null)} />}

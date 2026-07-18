@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store.js';
 import { samePair, similarity } from '../utils.js';
 import { autoGrow } from '../workActions.js';
@@ -54,7 +54,7 @@ function TmCard({ t, score, scale, active, linked }) {
       </div>
       <div className="tm-card-foot">
         <span>出處：{t.source || '—'}</span>
-        {score != null && <span className="tm-pct">TM {Math.round(score * 100)}%</span>}
+        {score != null && <span className="tm-pct">TM {score}%</span>}
       </div>
     </div>
   );
@@ -66,6 +66,7 @@ export default function TmSidebar() {
   const tmSegments = useStore(s => s.tmSegments);
   const currentDocId = useStore(s => s.currentDocId);
   const lastFocusedSegId = useStore(s => s.lastFocusedSegId);
+  const tmThreshold = useStore(s => s.prefs.tmThreshold);
 
   const [pinned, setPinned] = useState(false);
   const [open, setOpen] = useState(false);
@@ -83,6 +84,18 @@ export default function TmSidebar() {
   const doc = documents.find(d => d.id === currentDocId) || null;
   const seg = doc ? doc.segments.find(x => x.id === lastFocusedSegId) : null;
   const scale = SIDE_SCALES[scaleIdx];
+  const srcLang = doc ? (doc.srcLang || 'ja') : 'ja';
+
+  /* 相似模式候選：全部算完再由門檻過濾（滑桿＝顯示層過濾器，拖動不重算，V56 設計原則）。
+     deps 刻意用 seg?.ja／語系配對而非 doc 物件——譯文每敲一字 doc 都是新參照，memo 會失效 */
+  const scored = useMemo(() => {
+    if (!doc || !seg) return [];
+    return tmSegments
+      .filter(t => samePair(t, doc))
+      .map(t => ({ t, score: similarity(seg.ja, t.ja, srcLang) }))
+      .filter(m => m.score > 0)
+      .sort((a, b) => b.score - a.score);
+  }, [tmSegments, currentDocId, srcLang, doc && doc.tgtLang, seg && seg.ja]);
 
   /* 把手：hover 展開對應模式，點擊切換固定/隱藏；點另一把手則切換模式 */
   const handleEnter = (m) => { if (!pinned) { setMode(m); setOpen(true); } };
@@ -110,7 +123,7 @@ export default function TmSidebar() {
           {!kwT
             ? <div className="tm-sidebar-empty">輸入原文或譯文關鍵字<br />搜尋翻譯記憶</div>
             : found.length
-              ? found.map(t => <TmCard key={t.id} t={t} score={seg ? similarity(seg.ja, t.ja) : null} scale={scale} active={inWork}
+              ? found.map(t => <TmCard key={t.id} t={t} score={seg ? similarity(seg.ja, t.ja, srcLang) : null} scale={scale} active={inWork}
                                        linked={!!seg && seg.tmId === t.id} />)
               : <div className="tm-sidebar-empty">找不到符合的翻譯記憶。</div>}
         </div>
@@ -119,16 +132,25 @@ export default function TmSidebar() {
   } else if (!seg) {
     body = <div className="tm-sidebar-empty">點擊左側任一句段的譯文欄，<br />這裡會列出相似的翻譯記憶。</div>;
   } else {
-    const matches = tmSegments
-      .filter(t => samePair(t, doc))
-      .map(t => ({ t, score: similarity(seg.ja, t.ja) }))
-      .filter(m => m.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 8);
-    body = matches.length
-      ? matches.map(m => <TmCard key={m.t.id} t={m.t} score={m.score} scale={scale} active={inWork}
-                                 linked={seg.tmId === m.t.id} />)
-      : <div className="tm-sidebar-empty">沒有與這一句相似的翻譯記憶。</div>;
+    /* 門檻過濾（V56）：滑桿值＝顯示門檻，本句連結中的那筆（tmId）豁免、依原排序位置顯示；
+       先過濾再取前 12 筆（防低門檻爆量），連結筆被截掉時補回尾端保證可見 */
+    const passed = scored.filter(m => m.score >= tmThreshold || m.t.id === seg.tmId);
+    const matches = passed.slice(0, 12);
+    const linkedCut = passed.find(m => m.t.id === seg.tmId && !matches.includes(m));
+    if (linkedCut) matches.push(linkedCut);
+    body = (
+      <>
+        <div className="tm-thr-line" id="tm-thr-line">
+          <i className="bi bi-sliders"></i> 靈敏度：顯示 {tmThreshold}% 以上
+        </div>
+        {matches.length
+          ? matches.map(m => <TmCard key={m.t.id} t={m.t} score={m.score} scale={scale} active={inWork}
+                                     linked={seg.tmId === m.t.id} />)
+          : <div className="tm-sidebar-empty">{scored.length
+              ? <>目前門檻（{tmThreshold}%）下沒有<br />相符的翻譯記憶，可調低靈敏度。</>
+              : <>沒有與這一句相似的翻譯記憶。</>}</div>}
+      </>
+    );
   }
 
   return (

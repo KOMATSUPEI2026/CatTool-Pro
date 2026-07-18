@@ -48,6 +48,7 @@ const defaultPrefs = () => ({
   punctSetIdx: 0,
   punctPinned: false,
   termTagPalette: Array(7).fill(''),
+  tmThreshold: 70,   // TM 靈敏度門檻（V56）：側欄相似模式只列相似度 ≥ 此值的結果（0–100、步進 5）
   updatedAt: 0
 });
 export function normalizePrefs(raw){
@@ -62,6 +63,9 @@ export function normalizePrefs(raw){
     termTagPalette: Array.isArray(raw.termTagPalette)
       ? Array.from({ length: 7 }, (_, i) => typeof raw.termTagPalette[i] === 'string' ? raw.termTagPalette[i] : '')
       : d.termTagPalette,
+    tmThreshold: (typeof raw.tmThreshold === 'number' && raw.tmThreshold >= 0 && raw.tmThreshold <= 100)
+      ? Math.round(raw.tmThreshold / 5) * 5
+      : d.tmThreshold,
     updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : 0
   };
 }

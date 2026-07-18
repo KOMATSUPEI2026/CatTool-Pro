@@ -458,6 +458,12 @@ ul, ol { list-style: none; padding: 0; }
     text-align:center;padding:40px 16px;color:var(--ink-soft);
     font-family:var(--font-display);font-size:var(--fs-sm);line-height:1.8;
   }
+  /* TM 靈敏度門檻說明列（V56）：相似模式結果區頂部常駐，提醒目前過濾門檻（調整走工具列 sliders 鈕） */
+  .tm-thr-line{
+    display:flex;align-items:center;gap:6px;
+    font-size:var(--fs-xs);color:var(--ink-soft);letter-spacing:.04em;
+    padding-bottom:8px;margin-bottom:12px;border-bottom:1px dashed var(--line);
+  }
   .tm-card{
     border:1px solid var(--line);border-radius:var(--radius);background:var(--surface-input);
     margin-bottom:12px;overflow:hidden;
@@ -906,6 +912,36 @@ ul, ol { list-style: none; padding: 0; }
 
   .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;}
   .modal-actions .btn{white-space:nowrap;}
+
+  /* TM 靈敏度 Modal 滑桿（V56）：軌道漸層＝寬鬆(teal)→中間(柿茶橘)→嚴格(朱紅)，
+     結構參考 Uiverse(PriyanshuGupta28)，配色改走站內色票；thumb 紙色圓鈕＋2px 墨邊 */
+  .tm-sense-hint{font-size:var(--fs-sm);color:var(--ink-soft);margin:0 0 14px;}
+  .tm-sense-value{
+    font-family:var(--font-display);font-size:var(--fs-md);font-weight:600;color:var(--seal);
+    margin-bottom:12px;
+  }
+  .tm-sense-slider{
+    -webkit-appearance:none;appearance:none;
+    width:100%;height:10px;border-radius:var(--radius);outline:none;
+    background-image:linear-gradient(90deg, var(--seal) 0%, var(--hist-accent) 50%, var(--vermilion) 100%);
+    opacity:.8;transition:opacity .2s;cursor:pointer;
+  }
+  .tm-sense-slider:hover{opacity:1;}
+  .tm-sense-slider::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;
+    width:20px;height:20px;border-radius:50%;
+    background:var(--paper-card);border:2px solid var(--ink);
+    box-shadow:var(--shadow-1);cursor:pointer;
+  }
+  .tm-sense-slider::-moz-range-thumb{
+    width:20px;height:20px;border-radius:50%;
+    background:var(--paper-card);border:2px solid var(--ink);
+    box-shadow:var(--shadow-1);cursor:pointer;
+  }
+  .tm-sense-scale{
+    display:flex;justify-content:space-between;
+    font-size:var(--fs-xs);color:var(--ink-soft);margin-top:8px;
+  }
 
   /* 句段整理 Modal（編輯/分割、排列、合併、刪除共用） */
   .modal-card.modal-card-xl{width:720px;}

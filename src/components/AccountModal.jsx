@@ -8,7 +8,7 @@ export default function AccountModal({ onClose }) {
   return (
     <div className="modal-overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal-card modal-card-wide">
-        <button className="modal-close-x" data-role="close" title="關閉" onClick={onClose}><i className="bi bi-x-lg"></i></button>
+        <button className="modal-close-x" data-role="close" title="關閉" onClick={onClose}><i className="bi bi-x-circle-fill"></i></button>
         <h3>Google 帳號</h3>
         <p className="account-email"><i className="bi bi-person-check"></i> {email || '已連結 Google'}</p>
         <p className="account-hint">

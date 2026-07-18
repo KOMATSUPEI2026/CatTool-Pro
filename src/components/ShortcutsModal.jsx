@@ -12,7 +12,7 @@ export default function ShortcutsModal({ onClose }) {
   return (
     <div className="modal-overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal-card modal-card-wide">
-        <button className="modal-close-x" data-role="close" title="關閉" onClick={onClose}><i className="bi bi-x-lg"></i></button>
+        <button className="modal-close-x" data-role="close" title="關閉" onClick={onClose}><i className="bi bi-x-circle-fill"></i></button>
         <h3>快捷鍵</h3>
         <div className="shortcut-list">
           {ROWS.map((r, i) => (

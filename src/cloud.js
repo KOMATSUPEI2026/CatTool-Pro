@@ -498,8 +498,8 @@ export async function tryAutoLoadFromCloud(){
     if(!localHas){ await doLoad(); return; }
     st().openConfirm({
       title:'載入雲端資料',
-      text:'雲端資料與本機不同。\n載入雲端會覆蓋目前畫面上的所有內容；\n若要以本機為準，請選「保留本機資料」後按「儲存至雲端」回寫。',
-      cancelLabel:'保留本機資料', okLabel:'載入雲端（覆蓋本機）',
+      text:'雲端資料與本機不符！\n載入雲端資料：載入後會覆蓋目本機內容\n保留本機資料：保留後需按「儲存至雲端」覆寫',
+      cancelLabel:'保留本機資料', okLabel:'載入雲端資料',
       onOk: () => { doLoad().catch(err => toast('雲端載入失敗：' + (err.message || String(err)))); },
       wide: true
     });

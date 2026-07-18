@@ -7,6 +7,7 @@ import ConfirmModal from '../components/ConfirmModal.jsx';
 import TermTip from '../components/TermTip.jsx';
 import TermModal from '../components/TermModal.jsx';
 import { SegEditModal, SegOrderModal, SegMergeModal, SegAddModal, SegDeleteModal } from '../components/SegToolModals.jsx';
+import PagePreview from '../components/PagePreview.jsx';
 
 const VIEW_MODES = [
   { key: 'review',    label: '校閱模式' },
@@ -158,7 +159,7 @@ export default function WorkTab() {
   const [selBtn, setSelBtn] = useState(null);   // 反白新增術語 { text, rect }
   const [modal, setModal] = useState(null);
   // {type:'reset', n} | {type:'srConfirm', n} | {type:'term', term, prefillJa} | {type:'delTerm', term}
-  // | {type:'segEdit'|'segOrder'|'segMerge'|'segAdd'|'segDelete'}
+  // | {type:'segEdit'|'segOrder'|'segMerge'|'segAdd'|'segDelete'} | {type:'pagePreview'}
 
   const doc = documents.find(d => d.id === currentDocId) || null;
   const active = currentTab === 'work';
@@ -225,6 +226,14 @@ export default function WorkTab() {
     const n = doc.segments.filter(s => workMode === 'translate' ? s.confirmed : s.reviewed).length;
     if (n === 0) { showToast(workMode === 'translate' ? '目前檔案沒有已翻譯的句段。' : '目前檔案沒有已校對的句段。'); return; }
     setModal({ type: 'reset', n });
+  };
+
+  // 整頁預覽（V53）：無檔案/無句段擋下（空預覽沒有意義）；開啟前收術語提示卡
+  const onPagePreview = () => {
+    if (!doc) { showToast('請先開啟一個檔案'); return; }
+    if (doc.segments.length === 0) { showToast('目前檔案沒有句段。'); return; }
+    setTermTip(null);
+    setModal({ type: 'pagePreview' });
   };
 
   const onReplace = () => {
@@ -309,6 +318,11 @@ export default function WorkTab() {
 
       <div className="view-toolbar">
         <span className="hint">提示：選取原文中的文字可以新增術語・Mac：Ctrl+N、Win：Alt+N 快速帶入術語</span>
+        <button className="icon-btn" id="btn-page-preview"
+                data-tip="整頁預覽：原文與譯文整頁通讀"
+                onClick={onPagePreview}>
+          <i className="bi bi-book"></i>
+        </button>
         <button className="icon-btn tip-right" id="btn-view-mode"
                 data-tip={`檢視模式：${VIEW_MODES[viewIdx].label}，點擊切換`}
                 onClick={() => { setViewIdx((viewIdx + 1) % VIEW_MODES.length); setTermTip(null); }}>
@@ -382,6 +396,8 @@ export default function WorkTab() {
                       onOk={() => { executeSearchReplace(kw, srReplace); setModal(null); }}>
           有 {modal.n} 處會被取代，句段會退回未確認狀態。
         </ConfirmModal>}
+
+      {modal?.type === 'pagePreview' && <PagePreview doc={doc} onClose={() => setModal(null)} />}
 
       {modal?.type === 'segEdit'   && <SegEditModal   doc={doc} onClose={() => setModal(null)} />}
       {modal?.type === 'segOrder'  && <SegOrderModal  doc={doc} onClose={() => setModal(null)} />}

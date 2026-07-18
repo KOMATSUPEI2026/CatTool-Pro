@@ -15,6 +15,7 @@ import { autoGrowAll } from './workActions.js';
 import TmSidebar from './components/TmSidebar.jsx';
 import PvSidebar from './components/PvSidebar.jsx';
 import HistorySidebar from './components/HistorySidebar.jsx';
+import CommentSidebar from './components/CommentSidebar.jsx';
 import PunctBar from './components/PunctBar.jsx';
 import ShortcutsModal from './components/ShortcutsModal.jsx';
 
@@ -147,6 +148,7 @@ export default function App() {
 
       <TmSidebar />
       <PvSidebar />
+      <CommentSidebar />
       <HistorySidebar />
       <PunctBar />
       <ScrollCapsule />

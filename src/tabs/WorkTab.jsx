@@ -15,11 +15,22 @@ const VIEW_MODES = [
   { key: 'readonly',  label: '純譯文模式' }
 ];
 
-/* 原文加術語高亮（最長優先、不重疊）；hover／點擊開術語提示卡 */
-function HighlightedSrc({ text, segId, termBase, doc }) {
+/* 留言錨點回貼（V55）：位移對得上 quote 直接用；原文被改動過就改搜尋 quote；
+   找不到＝不畫點線（留言卡片仍在側欄，引用文字看得到） */
+function resolveCmtRange(text, c) {
+  if (text.slice(c.start, c.end) === c.quote) return { start: c.start, end: c.end };
+  const i = text.indexOf(c.quote);
+  return i >= 0 ? { start: i, end: i + c.quote.length } : null;
+}
+
+/* 原文加術語高亮（最長優先、不重疊）＋留言點線（V55）；hover／點擊開術語提示卡。
+   術語命中與留言區間是兩套獨立、可互相重疊的區間：以全部邊界切段融合渲染，
+   同一段文字可同時掛 term-hit 與 cmt-underline（術語提示卡行為不變） */
+function HighlightedSrc({ text, segId, termBase, doc, segComments }) {
   const setTermTip = useStore(s => s.setTermTip);
   const hits = findTermHits(text, termBase, doc);
-  if (hits.length === 0) return text;
+  const cmtRanges = (segComments || []).map(c => resolveCmtRange(text, c)).filter(Boolean);
+  if (hits.length === 0 && cmtRanges.length === 0) return text;
 
   const openTip = (h, e) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -28,25 +39,35 @@ function HighlightedSrc({ text, segId, termBase, doc }) {
       anchor: { top: r.top, bottom: r.bottom, left: r.left }
     });
   };
+  const bounds = new Set([0, text.length]);
+  hits.forEach(h => { bounds.add(h.start); bounds.add(h.end); });
+  cmtRanges.forEach(r => { bounds.add(r.start); bounds.add(r.end); });
+  const pts = [...bounds].sort((a, b) => a - b);
   const out = [];
-  let cursor = 0;
-  hits.forEach((h, i) => {
-    if (h.start > cursor) out.push(text.slice(cursor, h.start));
+  for (let k = 0; k < pts.length - 1; k++) {
+    const a = pts[k], b = pts[k + 1];
+    const piece = text.slice(a, b);
+    const hit = hits.find(h => h.start <= a && b <= h.end);
+    const inCmt = cmtRanges.some(r => r.start <= a && b <= r.end);
+    if (!hit && !inCmt) { out.push(piece); continue; }
     out.push(
-      <span key={i} className="term-hit" data-seg={segId} data-termid={h.term.id}
-            onMouseOver={e => openTip(h, e)}
-            onClick={e => { e.stopPropagation(); openTip(h, e); }}>
-        {text.slice(h.start, h.end)}
-      </span>
+      hit
+        ? <span key={k} className={'term-hit' + (inCmt ? ' cmt-underline' : '')}
+                data-seg={segId} data-termid={hit.term.id}
+                onMouseOver={e => openTip(hit, e)}
+                onClick={e => { e.stopPropagation(); openTip(hit, e); }}>
+            {piece}
+          </span>
+        : <span key={k} className="cmt-underline">{piece}</span>
     );
-    cursor = h.end;
-  });
-  out.push(text.slice(cursor));
+  }
   return out;
 }
 
 function SegRow({ seg, index, doc, active, viewKey }) {
   const termBase = useStore(s => s.termBase);
+  const comments = useStore(s => s.comments);
+  const openCommentSidebar = useStore(s => s.openCommentSidebar);
   const textScale = useStore(s => s.textScale);
   const workMode = useStore(s => s.workMode);
   const updateSegZh = useStore(s => s.updateSegZh);
@@ -79,18 +100,26 @@ function SegRow({ seg, index, doc, active, viewKey }) {
     saveSegmentNow(seg.id);
   };
 
+  // V55 留言：未解決的才畫點線與左欄指示 icon（已解決＝處理完，不再標記原文）
+  const segComments = comments.filter(c => c.segId === seg.id && !c.resolved);
+
   return (
     <div className={'seg' + (seg.confirmed ? ' confirmed' : '') + (seg.reviewed ? ' reviewed' : '')}>
       <div className="seg-num">
         {/* 氣泡提示會被 .seg 的 overflow:hidden 裁切，徽章用原生 title */}
         <span className="badge" onClick={onBadgeClick}
               title={workMode === 'translate' ? '點擊切換已翻譯狀態' : '點擊切換已校對狀態'}>{index + 1}</span>
+        {segComments.length > 0 &&
+          <button className="seg-cmt-ind" title="這一句有留言，點擊開留言側欄"
+                  onClick={openCommentSidebar}>
+            <i className="bi bi-chat-left-text"></i>
+          </button>}
       </div>
       <div className="seg-body">
         <div className="seg-src">
           <div className="label"><span>原文 {langName(doc.srcLang || 'ja')}（{doc.srcLang || 'ja'}）</span></div>
-          <div className="src-text">
-            <HighlightedSrc text={seg.ja} segId={seg.id} termBase={termBase} doc={doc} />
+          <div className="src-text" data-seg={seg.id}>
+            <HighlightedSrc text={seg.ja} segId={seg.id} termBase={termBase} doc={doc} segComments={segComments} />
           </div>
         </div>
         <div className="seg-tgt">

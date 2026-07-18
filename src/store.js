@@ -94,6 +94,9 @@ export const useStore = create(persist((set) => ({
   termBase: [],
   tmSegments: [],
   folders: [],
+  // 留言（V55）：錨定某句段原文的一段文字（start/end＝字元位移、quote＝選取當下原文，錨點回貼用）
+  // comments = [{ id, docId, segId, start, end, quote, body, resolved, createdAt, updatedAt }]
+  comments: [],
   currentTab: 'ingest',
   currentDocId: null,
   collapsedFolders: new Set(),
@@ -114,6 +117,7 @@ export const useStore = create(persist((set) => ({
   prefs: loadLocalPrefs(),
   // 雲端層（讀寫邏輯在 cloud.js，這裡只放需要驅動畫面的狀態）
   auth: { token: null, email: null },   // Supabase Auth session 映射（SDK 自動續期，無過期防護需求）
+  cmtOpenSeq: 0,            // 留言側欄展開請求（V55）：卡片留言 icon 點擊遞增，側欄訂閱後展開並固定
   cloudBusy: false,         // 儲存進行中（鎖「儲存至雲端」按鈕＋重入守門）
   cloudFlashSeq: 0,         // 全量儲存成功遞增：雲端鈕短暫轉實心雲 icon（V51）
   welcomeVisible: true,     // 歡迎面板（登入成功或選訪客後收起）
@@ -148,6 +152,17 @@ export const useStore = create(persist((set) => ({
     return { prefs };
   }),
 
+  /* ---- 留言（V55）：CRUD 一律走這四個 actions；雲端即存由呼叫端接手 ---- */
+  addComment: (c) => set(s => ({ comments: [...s.comments, c] })),
+  updateCommentBody: (id, body) => set(s => ({
+    comments: s.comments.map(c => c.id === id ? { ...c, body, updatedAt: Date.now() } : c)
+  })),
+  setCommentResolved: (id, on) => set(s => ({
+    comments: s.comments.map(c => c.id === id ? { ...c, resolved: !!on, updatedAt: Date.now() } : c)
+  })),
+  deleteComment: (id) => set(s => ({ comments: s.comments.filter(c => c.id !== id) })),
+  openCommentSidebar: () => set(s => ({ cmtOpenSeq: s.cmtOpenSeq + 1 })),
+
   setAuth: (patch) => set(s => ({ auth: { ...s.auth, ...patch } })),
   hideWelcome: () => set({ welcomeVisible: false }),
   openConfirm: (cfg) => set({ confirmModal: cfg }),
@@ -170,6 +185,7 @@ export const useStore = create(persist((set) => ({
   }),
   deleteDocument: (docId) => set(s => ({
     documents: s.documents.filter(d => d.id !== docId),
+    comments: s.comments.filter(c => c.docId !== docId),   // 鏡像 DB cascade：留言跟文件走
     currentDocId: s.currentDocId === docId ? null : s.currentDocId
   })),
   setDocFolder: (docId, folderId) => set(s => ({
@@ -339,8 +355,11 @@ export const useStore = create(persist((set) => ({
       // 分割出的後半句：譯文留在前半句，這裡從空白開始
       kept.push({ id: cid(), ja: it.ja, zh: '', confirmed: false, reviewed: false, tmId: null });
     });
+    // 被清空（視同刪除）的句段：留言鏡像 cascade 一併清；保留句的留言不動（錨點渲染時回貼）
+    const keptIds = new Set(kept.map(x => x.id));
     return {
       srUndoSnapshot: s.srUndoSnapshot?.docId === doc.id ? null : s.srUndoSnapshot,
+      comments: s.comments.filter(c => c.docId !== doc.id || keptIds.has(c.segId)),
       ...withSegments(s, kept)
     };
   }),
@@ -368,8 +387,11 @@ export const useStore = create(persist((set) => ({
     };
     const segments = [...doc.segments];
     segments.splice(indices[0], indices.length, first);
+    // 被併掉的後續句段消失：其留言鏡像 cascade 清掉（首句留言保留，錨點渲染時回貼）
+    const goneIds = new Set(group.slice(1).map(x => x.id));
     return {
       srUndoSnapshot: s.srUndoSnapshot?.docId === doc.id ? null : s.srUndoSnapshot,
+      comments: s.comments.filter(c => !goneIds.has(c.segId)),
       ...withSegments(s, segments)
     };
   }),
@@ -389,6 +411,7 @@ export const useStore = create(persist((set) => ({
     const idSet = new Set(ids);
     return {
       srUndoSnapshot: s.srUndoSnapshot?.docId === doc.id ? null : s.srUndoSnapshot,
+      comments: s.comments.filter(c => !idSet.has(c.segId)),   // 鏡像 DB cascade：留言跟句段走
       ...withSegments(s, doc.segments.filter(x => !idSet.has(x.id)))
     };
   })
@@ -401,6 +424,7 @@ export const useStore = create(persist((set) => ({
     documents: s.documents,
     termBase: s.termBase,
     tmSegments: s.tmSegments,
-    folders: s.folders
+    folders: s.folders,
+    comments: s.comments
   })
 }));

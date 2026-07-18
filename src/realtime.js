@@ -8,7 +8,7 @@ import { applyRemoteChange, catchUpAfterReconnect, registerSyncPendingCheck, aut
    前提：五表已加入 supabase_realtime publication＋client_id 欄位（校譯台_Phase3_realtime.sql）。
    RLS 照常把關（只收到自己的列）；DELETE 事件僅帶主鍵。 */
 
-const TABLES = ['folders', 'documents', 'segments', 'terms', 'tm'];
+const TABLES = ['folders', 'documents', 'segments', 'terms', 'tm', 'comments'];   // comments 自 V55
 
 let _channel = null;
 let _everSubscribed = false;   // 本次登入是否成功同步過（沒同步過＝行為同 V48，不降級）

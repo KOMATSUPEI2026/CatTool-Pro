@@ -41,6 +41,8 @@ ul, ol { list-style: none; padding: 0; }
     --fs-lg:18px;   /* 重點：原文(×text-scale)/Modal 標題 */
     --fs-xl:26px;   /* 標題：H1/歡迎面板 */
     --hist-accent:#B4622D;   /* 歷史紀錄專屬柿茶橘（把手/還原鈕；亮暗各一階） */
+    --cmt-accent:#B4622D;    /* 留言功能柿茶橘（V55：把手/tab 底線/點線/引用文字；與歷史同值但語意分開） */
+    --cmt-accent-soft:rgba(180,98,45,0.12);
     --radius-xs:2px;
     --radius-sm:4px;
     --radius:6px;
@@ -100,6 +102,8 @@ ul, ol { list-style: none; padding: 0; }
     --accent-strong-text:#1B1A17;
     --handle-active-tint:rgba(232,228,218,0.30);
     --hist-accent:#DD8F53;
+    --cmt-accent:#DD8F53;
+    --cmt-accent-soft:rgba(221,143,83,0.16);
     --glass-bg:rgba(27,26,23,0.5);
   }
   html,body{padding:0;}
@@ -373,9 +377,15 @@ ul, ol { list-style: none; padding: 0; }
   .seg-num{
     width:calc(42px * var(--ui-pad-scale));flex-shrink:0;
     background:var(--hover-tint);
-    display:flex;align-items:flex-start;justify-content:center;
-    padding-top:14px;border-right:1px solid var(--line);
+    display:flex;flex-direction:column;align-items:center;
+    padding-top:14px;padding-bottom:12px;border-right:1px solid var(--line);
   }
+  /* V55：句段有留言時的左欄指示 icon（沉底），點擊開留言側欄 */
+  .seg-cmt-ind{
+    margin-top:auto;background:none;border:none;cursor:pointer;
+    color:var(--cmt-accent);font-size:var(--fs-sm);line-height:1;padding:4px;
+  }
+  .seg-cmt-ind:hover{color:var(--ink);}
   .seg-num .badge{
     width:24px;height:24px;border-radius:50%;flex-shrink:0;
     display:flex;align-items:center;justify-content:center;
@@ -402,6 +412,11 @@ ul, ol { list-style: none; padding: 0; }
     cursor:pointer;padding:0 2px;border-radius:var(--radius-xs);
   }
   .term-hit:hover{background:var(--vermilion-soft2);}
+  /* V55：被留言的原文區段點線（可與 term-hit 同段疊加；已解決留言不畫） */
+  .cmt-underline{
+    text-decoration:underline dotted var(--cmt-accent) 2px;
+    text-underline-offset:6px;
+  }
 
   /* ---- 翻譯記憶側邊欄 ---- */
   .tm-sidebar{
@@ -556,6 +571,94 @@ ul, ol { list-style: none; padding: 0; }
   .pv-handle.shifted{left:var(--side-w);}
   #pv-handle-adjacent{top:38%;background:var(--seal);}
   #pv-handle-specific{top:56%;background:var(--vermilion);}
+
+  /* ---- 留言側欄（左側第三把手，V55）：骨架同 .pv-sidebar ---- */
+  .cmt-handle{
+    position:fixed;left:0;top:74%;z-index:calc(var(--z-side) + 1);
+    writing-mode:vertical-rl;letter-spacing:.2em;
+    background:var(--cmt-accent);color:var(--on-accent);border:none;cursor:pointer;
+    padding:16px 6px;border-radius:0 var(--radius) var(--radius) 0;font-size:var(--fs-sm);font-weight:600;
+    font-family:var(--font-ui);box-shadow:2px 0 8px rgba(0,0,0,.2);
+    display:none;transition:left .22s ease;
+  }
+  .cmt-handle.visible{display:block;}
+  .cmt-handle.shifted{left:var(--side-w);}
+  .cmt-sidebar{
+    --side-scale:1;
+    position:fixed;top:0;left:0;bottom:0;width:var(--side-w);z-index:var(--z-side);
+    background:var(--paper-card);border-right:1px solid var(--line);
+    box-shadow:6px 0 20px rgba(0,0,0,.12);
+    transform:translateX(-100%);transition:transform .22s ease;
+    display:none;flex-direction:column;
+  }
+  .cmt-sidebar.visible{display:flex;}
+  .cmt-sidebar.open{transform:translateX(0);}
+  .cmt-sidebar-header{
+    padding:14px 16px;border-bottom:1px solid var(--line);
+    font-family:var(--font-display);font-weight:700;font-size:var(--fs-md);color:var(--ink);
+    display:flex;justify-content:space-between;align-items:center;flex-shrink:0;
+  }
+  .cmt-tabs{display:flex;border-bottom:1px solid var(--line);flex-shrink:0;}
+  .cmt-tabs button{
+    flex:1;background:none;border:none;cursor:pointer;
+    font-family:var(--font-display);font-size:var(--fs-sm);color:var(--ink-soft);
+    padding:10px 4px;border-bottom:2px solid transparent;
+  }
+  .cmt-tabs button.active{color:var(--ink);border-bottom-color:var(--cmt-accent);font-weight:600;}
+  .cmt-sidebar-body{flex:1;overflow-y:auto;padding:12px;}
+  .cmt-empty{
+    text-align:center;padding:40px 16px;color:var(--ink-soft);
+    font-family:var(--font-display);font-size:var(--fs-sm);line-height:1.8;
+  }
+  /* 卡片：@引用原文（柿茶橘、日文襯線）＋留言內容＋時間戳/動作列；已解決 icon 浮右上 */
+  .cmt-card, .cmt-editor{
+    position:relative;
+    border:1px solid var(--line);border-radius:var(--radius);background:var(--surface-input);
+    margin-bottom:12px;padding:10px 12px;
+  }
+  .cmt-editor{border-color:var(--cmt-accent);}
+  .cmt-quote{
+    font-family:var(--font-src);font-size:calc(var(--fs-sm) * var(--side-scale));line-height:1.8;
+    color:var(--cmt-accent);margin-bottom:6px;word-break:break-all;
+  }
+  .cmt-card .cmt-quote{cursor:pointer;padding-right:24px;}
+  .cmt-card .cmt-quote:hover{text-decoration:underline dotted var(--cmt-accent) 2px;text-underline-offset:4px;}
+  .cmt-body{
+    font-family:var(--font-ui);font-size:calc(var(--fs-sm) * var(--side-scale));line-height:1.8;
+    color:var(--ink);white-space:pre-line;
+  }
+  .cmt-textarea{
+    width:100%;min-height:56px;resize:none;
+    font-family:var(--font-ui);font-size:calc(var(--fs-sm) * var(--side-scale));line-height:1.8;
+    border:1px solid var(--line);border-radius:var(--radius-sm);padding:6px 8px;
+    background:var(--hover-tint);color:var(--ink);
+  }
+  .cmt-textarea:focus{outline:none;border-color:var(--cmt-accent);}
+  .cmt-foot, .cmt-editor-foot{
+    display:flex;justify-content:space-between;align-items:center;
+    padding-top:6px;font-size:var(--fs-xs);color:var(--ink-soft);
+  }
+  .cmt-enter-hint{font-size:var(--fs-xs);color:var(--ink-soft);}
+  .cmt-actions{display:inline-flex;gap:8px;}
+  .cmt-actions button, .cmt-cancel-btn{
+    font-family:var(--font-ui);font-size:var(--fs-xs);font-weight:600;
+    background:transparent;border:1px solid var(--cmt-accent);color:var(--cmt-accent);
+    padding:2px 8px;border-radius:var(--radius-pill);cursor:pointer;
+  }
+  .cmt-actions button:hover, .cmt-cancel-btn:hover{background:var(--cmt-accent);color:var(--on-accent);}
+  .cmt-resolve-btn{
+    position:absolute;top:8px;right:8px;
+    background:none;border:none;cursor:pointer;
+    color:var(--cmt-accent);font-size:var(--fs-md);line-height:1;padding:2px;
+  }
+  .cmt-resolve-btn:hover{color:var(--ink);}
+  .cmt-sidebar-foot{padding:12px 16px;border-top:1px solid var(--line);flex-shrink:0;}
+  .cmt-new-btn{
+    width:100%;padding:10px 4px;cursor:pointer;
+    font-family:var(--font-display);font-size:var(--fs-sm);font-weight:700;letter-spacing:.2em;
+    background:var(--cmt-accent);color:var(--on-accent);border:none;border-radius:var(--radius);
+  }
+  .cmt-new-btn:hover{opacity:.88;}
   /* ---- 歷史紀錄側邊欄（右側第三把手，V48 Phase 2） ---- */
   .hist-sidebar{
     --side-scale:1;
@@ -623,8 +726,11 @@ ul, ol { list-style: none; padding: 0; }
      面板關閉後自動彈回——避免把手浮在別組面板上互相遮擋 */
   body:has(.hist-sidebar.open) .tm-handle{right:-44px;}
   body:has(.tm-sidebar.open) .hist-handle{right:-44px;}
+  /* 左側兩組（頁面檢視/留言）同一套互斥（V55） */
+  body:has(.cmt-sidebar.open) .pv-handle{left:-44px;}
+  body:has(.pv-sidebar.open) .cmt-handle{left:-44px;}
 
-  .tm-handle.active, .pv-handle.active, .hist-handle.active{
+  .tm-handle.active, .pv-handle.active, .hist-handle.active, .cmt-handle.active{
     box-shadow:inset 0 0 0 100px var(--handle-active-tint), 0 0 0 2px var(--paper-card);
     font-weight:700;
   }

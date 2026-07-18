@@ -2,7 +2,7 @@ import { supabase } from './supabaseClient.js';
 import { useStore } from './store.js';
 
 /* 雲端層（Phase 2＝逐句即存版）：Supabase Auth（Google OAuth redirect）＋
-   五張表（folders/documents/segments/terms/tm）全量 upsert＋比對刪除消失列＋自動儲存機制，
+   六張表（folders/documents/segments/terms/tm/comments，V55 起）全量 upsert＋比對刪除消失列＋自動儲存機制，
    V48 起 Tab 確認逐句即存（saveSegmentNow）＋segment_history 單句歷史（DB trigger 寫、前端只讀）。
    V45 的 GIS 1 小時 token 整套防護（搶存/過期橫幅/401 重授權/暫停偵測）已隨 session 自動續期整段移除。
    與畫面相關的狀態（auth/cloudBusy/welcomeVisible/confirmModal）放 store，
@@ -86,16 +86,17 @@ async function selectAllRows(table, cols, orderCols){
 }
 
 export const db = {
-  // 五表全量讀取（RLS 只回自己的列）；順序以 position 為準（store 陣列序＝句序/列序的事實來源）
+  // 六表全量讀取（RLS 只回自己的列）；順序以 position 為準（store 陣列序＝句序/列序的事實來源）
   async fetchTables(){
-    const [folders, documents, segments, terms, tm] = await Promise.all([
+    const [folders, documents, segments, terms, tm, comments] = await Promise.all([
       selectAllRows('folders',   '*', ['position', 'id']),
       selectAllRows('documents', '*', ['position', 'id']),
       selectAllRows('segments',  '*', ['doc_id', 'position', 'id']),
       selectAllRows('terms',     '*', ['position', 'id']),
-      selectAllRows('tm',        '*', ['position', 'id'])
+      selectAllRows('tm',        '*', ['position', 'id']),
+      selectAllRows('comments',  '*', ['position', 'id'])
     ]);
-    return { folders, documents, segments, terms, tm };
+    return { folders, documents, segments, terms, tm, comments };
   },
   async selectIds(table){
     const rows = await selectAllRows(table, 'id', ['id']);
@@ -164,10 +165,19 @@ const tmRow = (t, i) => rowToSnake({
   id: t.id, ja: t.ja || '', zh: t.zh || '', source: t.source || '',
   srcLang: t.srcLang || '', tgtLang: t.tgtLang || '', position: i
 });
+const commentRow = (c, i) => rowToSnake({
+  clientId: CLIENT_ID,
+  id: c.id, docId: c.docId, segId: c.segId,
+  startOff: c.start || 0, endOff: c.end || 0,
+  quote: c.quote || '', body: c.body || '', resolved: !!c.resolved,
+  createdAt: new Date(c.createdAt || Date.now()).toISOString(),
+  updatedAt: new Date(c.updatedAt || Date.now()).toISOString(),
+  position: i
+});
 
 function serializeForCloud(){
-  const { documents, termBase, tmSegments, folders } = st();
-  const rows = { folders: [], documents: [], segments: [], terms: [], tm: [] };
+  const { documents, termBase, tmSegments, folders, comments } = st();
+  const rows = { folders: [], documents: [], segments: [], terms: [], tm: [], comments: [] };
   folders.forEach((f, i) => rows.folders.push({ id: f.id, name: f.name, position: i, client_id: CLIENT_ID }));
   documents.forEach((d, i) => {
     rows.documents.push(docRow(d, i));
@@ -179,6 +189,7 @@ function serializeForCloud(){
     srcLang: t.srcLang || '', tgtLang: t.tgtLang || '', tag: t.tag || '', position: i
   })));
   tmSegments.forEach((t, i) => rows.tm.push(tmRow(t, i)));
+  comments.forEach((c, i) => rows.comments.push(commentRow(c, i)));
   return rows;
 }
 
@@ -215,6 +226,15 @@ function tmRowToStore(r){
     srcLang: r.src_lang || '', tgtLang: r.tgt_lang || ''
   };
 }
+function commentRowToStore(r){
+  return {
+    id: r.id, docId: r.doc_id, segId: r.seg_id,
+    start: r.start_off || 0, end: r.end_off || 0,
+    quote: r.quote || '', body: r.body || '', resolved: !!r.resolved,
+    createdAt: Date.parse(r.created_at) || Date.now(),
+    updatedAt: Date.parse(r.updated_at) || Date.now()
+  };
+}
 async function fetchAllFromCloud(){
   const t = await db.fetchTables();
   const segsByDoc = new Map();
@@ -226,7 +246,8 @@ async function fetchAllFromCloud(){
     folders: t.folders.map(r => ({ id: r.id, name: r.name })),
     documents: t.documents.map(r => ({ ...docRowToStore(r), segments: segsByDoc.get(r.id) || [] })),
     termBase: t.terms.map(termRowToStore),
-    tmSegments: t.tm.map(tmRowToStore)
+    tmSegments: t.tm.map(tmRowToStore),
+    comments: (t.comments || []).map(commentRowToStore)   // 舊假雲端/未跑 V55 SQL 的容錯
   };
 }
 
@@ -251,19 +272,19 @@ export async function saveAllToCloud(opts = {}){
   try{
     const snapAtStart = cloudSnapshot();   // 儲存期間若又打字，快照對不上=仍視為未儲存
     const rows = serializeForCloud();
-    const TABLES = ['folders', 'documents', 'segments', 'terms', 'tm'];
+    const TABLES = ['folders', 'documents', 'segments', 'comments', 'terms', 'tm'];
     const existing = {};
     await Promise.all(TABLES.map(async t => { existing[t] = await db.selectIds(t); }));
 
-    // upsert 順序守外鍵：folders → documents → segments；terms/tm 無依賴
+    // upsert 順序守外鍵：folders → documents → segments → comments；terms/tm 無依賴
     for(const t of TABLES) await db.upsert(t, rows[t]);
 
-    // 刪除消失列：documents 先刪（cascade 帶走其句段；已 cascade 的 id 再刪一次是無害空操作）
+    // 刪除消失列：documents 先刪（cascade 帶走其句段與留言；已 cascade 的 id 再刪一次是無害空操作）
     const missing = (t) => {
       const keep = new Set(rows[t].map(r => r.id));
       return existing[t].filter(id => !keep.has(id));
     };
-    for(const t of ['documents', 'segments', 'folders', 'terms', 'tm'])
+    for(const t of ['documents', 'segments', 'comments', 'folders', 'terms', 'tm'])
       await db.deleteIds(t, missing(t));
 
     _lastCloudSnapshot = snapAtStart;
@@ -385,6 +406,11 @@ function applyOpToDataset(ds, table, eventType, row){
       ? { tmSegments: ds.tmSegments.filter(t => t.id !== row.id) } : null;
     return { tmSegments: upsertAt(ds.tmSegments, tmRowToStore(row), row.position) };
   }
+  if(table === 'comments'){
+    if(isDel) return ds.comments.some(c => c.id === row.id)
+      ? { comments: ds.comments.filter(c => c.id !== row.id) } : null;
+    return { comments: upsertAt(ds.comments, commentRowToStore(row), row.position) };
+  }
   return null;
 }
 
@@ -393,7 +419,7 @@ export function applyRemoteChange(table, eventType, row){
   if(eventType !== 'DELETE' && row.client_id === CLIENT_ID) return;   // 自己寫入的回聲
   const s = st();
   const patch = applyOpToDataset(
-    { documents: s.documents, termBase: s.termBase, tmSegments: s.tmSegments, folders: s.folders },
+    { documents: s.documents, termBase: s.termBase, tmSegments: s.tmSegments, folders: s.folders, comments: s.comments },
     table, eventType, row);
   if(patch){
     // 開啟中的文件被別視窗刪除：退回未開檔狀態（工作區顯示空狀態）
@@ -421,6 +447,7 @@ function applyCloudDataInPlace(next){
     termBase: next.termBase,
     tmSegments: next.tmSegments,
     folders: next.folders,
+    comments: next.comments,
     currentDocId: next.documents.some(d => d.id === s.currentDocId) ? s.currentDocId : null,
     srUndoSnapshot: null,
     termTip: null
@@ -468,7 +495,8 @@ function canonSnapshot(data){
       d.segments.map(s => [s.id, s.srcNo === null || s.srcNo === undefined ? '' : String(s.srcNo),
                            s.ja || '', s.zh || '', !!s.confirmed, !!s.reviewed, s.tmId || ''])]),
     terms: data.termBase.map(t => [t.id, t.ja || '', t.zh || '', t.note || '', t.source || '', t.srcLang || '', t.tgtLang || '', t.tag || '']),
-    tm: data.tmSegments.map(t => [t.id, t.ja || '', t.zh || '', t.source || '', t.srcLang || '', t.tgtLang || ''])
+    tm: data.tmSegments.map(t => [t.id, t.ja || '', t.zh || '', t.source || '', t.srcLang || '', t.tgtLang || '']),
+    comments: (data.comments || []).map(c => [c.id, c.docId, c.segId, c.start || 0, c.end || 0, c.quote || '', c.body || '', !!c.resolved])
   });
 }
 
@@ -479,6 +507,7 @@ function applyCloudData(next){
     termBase: next.termBase,
     tmSegments: next.tmSegments,
     folders: next.folders,
+    comments: next.comments,
     currentDocId: null,
     lastFocusedSegId: null,
     collapsedFolders: new Set(),
@@ -530,9 +559,9 @@ export async function tryAutoLoadFromCloud(){
   try{
     const next = await fetchAllFromCloud();
     const s = st();
-    const local = { documents: s.documents, termBase: s.termBase, tmSegments: s.tmSegments, folders: s.folders };
-    const cloudHas = next.documents.length || next.termBase.length || next.tmSegments.length || next.folders.length;
-    const localHas = local.documents.length || local.termBase.length || local.tmSegments.length || local.folders.length;
+    const local = { documents: s.documents, termBase: s.termBase, tmSegments: s.tmSegments, folders: s.folders, comments: s.comments };
+    const cloudHas = next.documents.length || next.termBase.length || next.tmSegments.length || next.folders.length || next.comments.length;
+    const localHas = local.documents.length || local.termBase.length || local.tmSegments.length || local.folders.length || local.comments.length;
     if(!cloudHas) return;   // 雲端全空（首次使用）：沿用本機，等第一次儲存
     if(canonSnapshot(local) === canonSnapshot(next)){
       _lastCloudSnapshot = cloudSnapshot();   // 內容一致：靜默標記已同步，不動畫面
@@ -562,8 +591,8 @@ export async function tryAutoLoadFromCloud(){
    未確認草稿、術語/TM/資料夾/句段整理等其餘變動仍靠這裡上雲 */
 const AUTO_SAVE_MS = 20 * 60 * 1000;   // 20 分鐘保底
 function cloudSnapshot(){
-  const { documents, termBase, tmSegments, folders } = st();
-  return JSON.stringify({documents, termBase, tmSegments, folders});
+  const { documents, termBase, tmSegments, folders, comments } = st();
+  return JSON.stringify({documents, termBase, tmSegments, folders, comments});
 }
 let _lastCloudSnapshot = cloudSnapshot();   // 初始＝載入當下的本機狀態
 export function hasUnsavedChanges(){ return cloudSnapshot() !== _lastCloudSnapshot; }

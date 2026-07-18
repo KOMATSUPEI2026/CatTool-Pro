@@ -258,13 +258,13 @@ export default function WorkTab() {
     })), (doc.name || 'segments') + '.json');
   };
 
-  /* 術語 Modal 送出（新增/編輯共用；提示卡編輯與反白新增都走這裡） */
-  const onTermSubmit = (ja, zh, note) => {
+  /* 術語 Modal 送出（新增/編輯共用；提示卡編輯與反白新增都走這裡）；V54 帶標籤 */
+  const onTermSubmit = (ja, zh, note, tag) => {
     if (modal.term) {
-      patchTerm(modal.term.id, { ja, zh, note });
+      patchTerm(modal.term.id, { ja, zh, note, tag: tag || '' });
     } else {
       const p = docPair(doc);
-      addTerm({ id: cid(), ja, zh, note, source: doc ? doc.name : '', srcLang: p.src, tgtLang: p.tgt });
+      addTerm({ id: cid(), ja, zh, note, tag: tag || '', source: doc ? doc.name : '', srcLang: p.src, tgtLang: p.tgt });
     }
     setModal(null);
   };

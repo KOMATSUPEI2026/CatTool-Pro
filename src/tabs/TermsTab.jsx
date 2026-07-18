@@ -30,6 +30,7 @@ function TermRow({ t }) {
       </td>
       <td><span className="source-tag">{t.srcLang || 'ja'}&nbsp;▶&nbsp;{t.tgtLang || 'zh-TW'}</span></td>
       <td><span className="source-tag">{t.source || '—'}</span></td>
+      <td>{t.tag ? <span className="term-tag-chip">{t.tag}</span> : <span className="source-tag">—</span>}</td>
       <td>
         <input value={t.note || ''} data-field="note" data-id={t.id} placeholder="備註"
                onChange={e => updateTerm(t.id, 'note', e.target.value)} />
@@ -57,7 +58,8 @@ export default function TermsTab() {
   const [page, setPage] = useState(1);
 
   const kwT = kw.trim();
-  const filtered = termBase.filter(t => !kwT || t.ja.includes(kwT) || t.zh.includes(kwT));
+  // V54：搜尋涵蓋標籤（標籤是術語的屬性之一，沿用同一個搜尋框）
+  const filtered = termBase.filter(t => !kwT || t.ja.includes(kwT) || t.zh.includes(kwT) || (t.tag || '').includes(kwT));
   const cur = clampPage(page, filtered.length);
   const rows = filtered.slice((cur - 1) * PAGE_SIZE, cur * PAGE_SIZE);
 
@@ -68,7 +70,7 @@ export default function TermsTab() {
     const p = doc ? docPair(doc)
       : ingestReady ? { src: ingestSrc, tgt: ingestTgt }
       : docPair(null);
-    addTerm({ id: cid(), ja: '', zh: '', note: '', source: '', srcLang: p.src, tgtLang: p.tgt });
+    addTerm({ id: cid(), ja: '', zh: '', note: '', tag: '', source: '', srcLang: p.src, tgtLang: p.tgt });
     setPage(1);   // 新詞條插在最前面，跳回第 1 頁讓使用者看得到
     setTimeout(() => document.querySelector('#term-tbody input[data-field="ja"]')?.focus());
   };
@@ -76,7 +78,7 @@ export default function TermsTab() {
   const onExport = () => {
     downloadJSON(termBase.map(t => {
       const sl = t.srcLang || 'ja', tl = t.tgtLang || 'zh-TW';
-      return { [sl]: t.ja, [tl]: t.zh, note: t.note, source: t.source || '', srcLang: sl, tgtLang: tl };
+      return { [sl]: t.ja, [tl]: t.zh, note: t.note, tag: t.tag || '', source: t.source || '', srcLang: sl, tgtLang: tl };
     }), 'termbase.json');
   };
 
@@ -88,7 +90,7 @@ export default function TermsTab() {
         const sl = d.srcLang || 'ja', tl = d.tgtLang || 'zh-TW';
         const src = d[sl] !== undefined ? d[sl] : d.ja;   // 新格式動態鍵，退回舊格式 ja
         const tgt = d[tl] !== undefined ? d[tl] : d.zh;   // 新格式動態鍵，退回舊格式 zh
-        if (src) incoming.push({ id: cid(), ja: src, zh: tgt || '', note: d.note || '', source: d.source || '', srcLang: sl, tgtLang: tl });
+        if (src) incoming.push({ id: cid(), ja: src, zh: tgt || '', note: d.note || '', tag: d.tag || '', source: d.source || '', srcLang: sl, tgtLang: tl });
       });
       importTerms(incoming);
     }, (msg) => showToast('JSON 解析失敗：' + msg));
@@ -98,7 +100,7 @@ export default function TermsTab() {
   return (
     <div className="card">
       <div className="table-toolbar">
-        <input className="search-box" id="term-search" placeholder="搜尋原文或譯名…"
+        <input className="search-box" id="term-search" placeholder="搜尋原文、譯名或標籤…"
                value={kw} onChange={e => { setKw(e.target.value); setPage(1); }} />
         <span className="search-no-result" id="term-no-result"
               style={{ display: (kwT && filtered.length === 0) ? 'inline' : 'none' }}>無匹配的搜尋結果</span>
@@ -117,6 +119,7 @@ export default function TermsTab() {
             <th style={{ width: '24%' }}>譯名（可用「;」並列多個）</th>
             <th style={{ width: 110 }}>語言</th>
             <th style={{ width: 80 }}>出處</th>
+            <th style={{ width: 80 }}>標籤</th>
             <th>備註</th>
             <th style={{ width: 36 }}></th>
           </tr></thead>

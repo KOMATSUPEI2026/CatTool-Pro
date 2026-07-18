@@ -267,14 +267,25 @@ ul, ol { list-style: none; padding: 0; }
   .scroll-capsule button:hover{background:var(--hover-tint);color:var(--vermilion);}
   .scroll-capsule button:first-child{border-bottom:1px solid var(--line);}
 
-  /* 快捷標點符號列（固定視窗下緣置中，僅翻譯工作區顯示） */
+  /* 快捷標點符號列（固定視窗下緣置中，僅翻譯工作區顯示）。
+     顯示/隱藏走 transform 位移＋transition（非 display 切換）：彈出與回彈同速滑動（V54 微調）；
+     隱藏時 visibility 延遲到位移結束才切，避免回彈中途消失，也擋掉隱藏期間的 Tab 聚焦 */
   #punct-bar{
-    position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:var(--z-side);
-    display:none;align-items:center;gap:6px;padding:8px 12px;
+    position:fixed;bottom:12px;left:50%;z-index:var(--z-side);
+    display:flex;align-items:center;gap:6px;padding:8px 12px;
     background:var(--paper-card);border:1px solid var(--line);border-radius:var(--radius-pill);
     box-shadow:var(--shadow-2);
+    transform:translate(-50%, calc(100% + 20px));   /* 藏到視窗下緣外（自身高＋bottom 餘裕） */
+    visibility:hidden;
+    transition:transform .18s ease-out, visibility 0s linear .18s;
   }
-  #punct-bar.show{display:flex;}
+  #punct-bar.show{
+    transform:translate(-50%, 0);
+    visibility:visible;
+    transition:transform .18s ease-out;
+  }
+  /* V54：滑鼠靠底彈出的觸發區（未固定時常駐；透明、z 在 bar 之下） */
+  #punct-hover-zone{position:fixed;left:0;right:0;bottom:0;height:24px;z-index:calc(var(--z-side) - 1);}
   .punct-key{
     position:relative;width:36px;height:36px;padding:0;flex:none;border-radius:50%;
     border:1px solid var(--line);background:var(--surface-input);color:var(--ink);
@@ -283,7 +294,7 @@ ul, ol { list-style: none; padding: 0; }
     transition:border-color .15s, background .15s;
   }
   .punct-key:hover{border-color:var(--vermilion);background:var(--hover-tint);}
-  .punct-key .punct-num{
+  .punct-key .punct-num, .punct-edit-toggle .punct-num{
     position:absolute;top:-4px;right:-4px;width:14px;height:14px;border-radius:50%;
     background:var(--seal);color:var(--on-accent);font-size:var(--fs-xs);font-weight:600;
     font-family:var(--font-ui);display:flex;align-items:center;justify-content:center;
@@ -298,7 +309,11 @@ ul, ol { list-style: none; padding: 0; }
     transition:border-color .15s, color .15s, background .15s;
   }
   .punct-edit-toggle:hover{border-color:var(--vermilion);color:var(--vermilion);}
-  #punct-bar.editing .punct-edit-toggle{background:var(--vermilion);border-color:var(--vermilion);color:var(--on-accent);}
+  /* V54 起 bar 內有三顆 toggle（編輯/切組/圖釘）：編輯中的實心態只給編輯鈕 */
+  #punct-bar.editing #punct-edit-toggle{background:var(--vermilion);border-color:var(--vermilion);color:var(--on-accent);}
+  .punct-edit-toggle{position:relative;}   /* 切組鈕的 .punct-num 角標定位基準 */
+  .punct-edit-toggle.pinned{background:var(--seal);border-color:var(--seal);color:var(--on-accent);}
+  .punct-edit-toggle.pinned:hover{border-color:var(--seal);color:var(--on-accent);opacity:.88;}
   /* 暗黑模式：bar 底比頁面更深、鍵面浮出、邊框亮一階，避免溶於背景 */
   :root[data-theme="dark"] #punct-bar{
     background:var(--tooltip-bg);
@@ -381,8 +396,9 @@ ul, ol { list-style: none; padding: 0; }
     font-family:var(--font-src);font-size:calc(var(--fs-lg) * var(--text-scale));line-height:2;color:var(--ink);
     user-select:text;white-space:pre-wrap;
   }
+  /* V54：移除點線底線，僅留螢光筆底色（雙重標記視覺過重） */
   .term-hit{
-    background:var(--vermilion-soft);border-bottom:2px dotted var(--vermilion);
+    background:var(--vermilion-soft);
     cursor:pointer;padding:0 2px;border-radius:var(--radius-xs);
   }
   .term-hit:hover{background:var(--vermilion-soft2);}
@@ -747,6 +763,41 @@ ul, ol { list-style: none; padding: 0; }
   }
   .modal-field input:focus{outline:none;border-color:var(--vermilion);}
   .modal-field.ja input{font-family:var(--font-src);}
+  /* 術語標籤面板（V54）：7 小圓格＝共用標籤字彙表（prefs），羽毛筆鈕解鎖編輯；
+     一般狀態點格子＝指派/取消（單選，selected 實心 teal 與語系配對徽章同系） */
+  .tag-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+  .tag-slot{
+    min-width:40px;height:28px;padding:0 8px;border-radius:var(--radius-pill);
+    border:1px solid var(--line);background:var(--surface-input);color:var(--seal);
+    font-family:var(--font-ui);font-size:var(--fs-xs);font-weight:600;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    transition:border-color .15s, background .15s, color .15s;
+  }
+  .tag-slot:hover{border-color:var(--seal);}
+  .tag-slot.blank{border-style:dashed;cursor:default;}
+  .tag-slot.blank:hover{border-color:var(--line);}
+  .tag-slot.selected{background:var(--seal);border-color:var(--seal);color:var(--on-accent);}
+  .tag-slot-input{
+    width:52px;height:28px;border-radius:var(--radius-pill);border:1px dashed var(--vermilion);
+    background:var(--surface-input);color:var(--ink);font-size:var(--fs-xs);font-weight:600;
+    text-align:center;padding:0 4px;
+  }
+  .tag-slot-input:focus{outline:none;border-style:solid;}
+  .tag-edit-toggle{
+    width:28px;height:28px;border-radius:50%;border:1px solid var(--line);
+    background:transparent;color:var(--ink-soft);font-size:var(--fs-sm);cursor:pointer;
+    display:flex;align-items:center;justify-content:center;margin-left:2px;
+    transition:border-color .15s, color .15s, background .15s;
+  }
+  .tag-edit-toggle:hover{border-color:var(--vermilion);color:var(--vermilion);}
+  .tag-edit-toggle.active{background:var(--vermilion);border-color:var(--vermilion);color:var(--on-accent);}
+  /* 術語庫列表的標籤 chip（唯讀顯示；指派/變更走工作區編輯術語 Modal） */
+  .term-tag-chip{
+    display:inline-block;padding:2px 8px;border-radius:var(--radius-pill);
+    border:1px solid var(--seal-soft2);background:var(--seal-soft);color:var(--seal);
+    font-size:var(--fs-xs);font-weight:600;white-space:nowrap;
+  }
+
   .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;}
   .modal-actions .btn{white-space:nowrap;}
 

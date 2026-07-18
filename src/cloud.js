@@ -117,6 +117,18 @@ export const db = {
       .order('saved_at', { ascending: false })
       .order('id', { ascending: false })
       .limit(5));
+  },
+  // V54：使用者偏好（user_prefs 一人一列 jsonb；RLS 只見自己的列）；無列回 null
+  async fetchPrefs(){
+    const rows = _ok(await supabase.from('user_prefs').select('prefs').limit(1));
+    return rows.length ? rows[0].prefs : null;
+  },
+  async upsertPrefs(prefs){
+    const { data: { session } } = await supabase.auth.getSession();
+    const uid = session?.user?.id;
+    if(!uid) return;   // 訪客/登出瞬間：偏好留在 localStorage 即可
+    _ok(await supabase.from('user_prefs')
+      .upsert({ user_id: uid, prefs, updated_at: new Date().toISOString() }, { onConflict: 'user_id' }));
   }
 };
 
@@ -164,7 +176,7 @@ function serializeForCloud(){
   termBase.forEach((t, i) => rows.terms.push(rowToSnake({
     clientId: CLIENT_ID,
     id: t.id, ja: t.ja || '', zh: t.zh || '', note: t.note || '', source: t.source || '',
-    srcLang: t.srcLang || '', tgtLang: t.tgtLang || '', position: i
+    srcLang: t.srcLang || '', tgtLang: t.tgtLang || '', tag: t.tag || '', position: i
   })));
   tmSegments.forEach((t, i) => rows.tm.push(tmRow(t, i)));
   return rows;
@@ -194,7 +206,7 @@ function docRowToStore(r){   // 不含 segments，由呼叫端掛
 function termRowToStore(r){
   return {
     id: r.id, ja: r.ja || '', zh: r.zh || '', note: r.note || '', source: r.source || '',
-    srcLang: r.src_lang || '', tgtLang: r.tgt_lang || ''
+    srcLang: r.src_lang || '', tgtLang: r.tgt_lang || '', tag: r.tag || ''   // V54：標籤（舊列缺欄視為空）
   };
 }
 function tmRowToStore(r){
@@ -455,7 +467,7 @@ function canonSnapshot(data){
     documents: data.documents.map(d => [d.id, d.name, d.folderId || '', d.srcLang || '', d.tgtLang || '',
       d.segments.map(s => [s.id, s.srcNo === null || s.srcNo === undefined ? '' : String(s.srcNo),
                            s.ja || '', s.zh || '', !!s.confirmed, !!s.reviewed, s.tmId || ''])]),
-    terms: data.termBase.map(t => [t.id, t.ja || '', t.zh || '', t.note || '', t.source || '', t.srcLang || '', t.tgtLang || '']),
+    terms: data.termBase.map(t => [t.id, t.ja || '', t.zh || '', t.note || '', t.source || '', t.srcLang || '', t.tgtLang || '', t.tag || '']),
     tm: data.tmSegments.map(t => [t.id, t.ja || '', t.zh || '', t.source || '', t.srcLang || '', t.tgtLang || ''])
   });
 }
@@ -477,7 +489,44 @@ function applyCloudData(next){
   _lastCloudSnapshot = cloudSnapshot();   // 剛載入＝與雲端同步
 }
 
+/* ---------------- V54 使用者偏好同步（user_prefs 單列 jsonb） ----------------
+   低風險資料走「最後寫入者贏」：prefs.updatedAt 比大小對時，不彈確認、不掛 Realtime。
+   上傳＝訂閱 store 的 prefs 參照變化（debounce 2 秒）；剛從雲端套用的那次以時間戳擋回聲 */
+const PREFS_SAVE_MS = 2000;
+let _prefsSaveTimer = null;
+let _lastSyncedPrefsAt = -1;
+function schedulePrefsSave(){
+  if(!st().auth.token) return;   // 訪客：localStorage 已落地，登入時再對時上雲
+  clearTimeout(_prefsSaveTimer);
+  _prefsSaveTimer = setTimeout(() => {
+    const prefs = st().prefs;
+    _lastSyncedPrefsAt = prefs.updatedAt || 0;
+    db.upsertPrefs(prefs).catch(() => { /* 偏好非關鍵資料：失敗靜默，下次變更再試 */ });
+  }, PREFS_SAVE_MS);
+}
+let _prevPrefsRef = st().prefs;
+const _prefsUnsub = useStore.subscribe((s) => {
+  if(s.prefs === _prevPrefsRef) return;
+  _prevPrefsRef = s.prefs;
+  if((s.prefs.updatedAt || 0) === _lastSyncedPrefsAt) return;   // setPrefsFromCloud 的回聲
+  schedulePrefsSave();
+});
+async function syncPrefsWithCloud(){
+  try{
+    const cloud = await db.fetchPrefs();
+    const local = st().prefs;
+    if(cloud && (cloud.updatedAt || 0) >= (local.updatedAt || 0)){
+      _lastSyncedPrefsAt = cloud.updatedAt || 0;
+      st().setPrefsFromCloud(cloud);
+    } else {
+      _lastSyncedPrefsAt = local.updatedAt || 0;
+      await db.upsertPrefs(local);   // 雲端無列或較舊：以本機回寫
+    }
+  }catch(e){ /* user_prefs 表未建等情況：偏好退回純本機，不擋工作資料載入 */ }
+}
+
 export async function tryAutoLoadFromCloud(){
+  syncPrefsWithCloud();   // 偏好與五表載入互不阻擋（各自 try/catch）
   try{
     const next = await fetchAllFromCloud();
     const s = st();
@@ -551,6 +600,8 @@ window.addEventListener('beforeunload', _beforeUnload);
 // vite dev HMR 換版時清掉舊計時器/監聽/auth 訂閱，避免重複註冊
 if(import.meta.hot) import.meta.hot.dispose(() => {
   _timers.forEach(clearInterval);
+  clearTimeout(_prefsSaveTimer);
+  _prefsUnsub();
   window.removeEventListener('beforeunload', _beforeUnload);
   _authSub?.unsubscribe();
 });

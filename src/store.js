@@ -37,6 +37,43 @@ const lazyJSONStorage = {
 };
 window.addEventListener('beforeunload', flushPersist);
 
+/* ---- 使用者偏好（V54）：標點三組＋標籤面板等「跟人走的工作習慣資產」 ----
+   與 fontMode（裝置偏好）不同：跨裝置應一致，故獨立鍵存 localStorage 之外，
+   登入後另由 cloud.js 同步 user_prefs 表（單列 jsonb，updatedAt 比大小＝最後寫入者贏）。
+   normalizePrefs 兜底舊結構/缺鍵（雲端舊列、未來加鍵都走這裡補預設） */
+const PREFS_KEY = 'catToolPrefs';
+export const DEFAULT_PUNCT_KEYS = ['，','。','；','：','、','「」','『』','！','？','“”'];
+const defaultPrefs = () => ({
+  punctSets: [[...DEFAULT_PUNCT_KEYS], Array(10).fill(''), Array(10).fill('')],
+  punctSetIdx: 0,
+  punctPinned: false,
+  termTagPalette: Array(7).fill(''),
+  updatedAt: 0
+});
+export function normalizePrefs(raw){
+  const d = defaultPrefs();
+  if(!raw || typeof raw !== 'object') return d;
+  return {
+    punctSets: (Array.isArray(raw.punctSets) && raw.punctSets.length === 3)
+      ? raw.punctSets.map(g => Array.from({ length: 10 }, (_, i) => (g && typeof g[i] === 'string') ? g[i] : ''))
+      : d.punctSets,
+    punctSetIdx: [0, 1, 2].includes(raw.punctSetIdx) ? raw.punctSetIdx : 0,
+    punctPinned: !!raw.punctPinned,
+    termTagPalette: Array.isArray(raw.termTagPalette)
+      ? Array.from({ length: 7 }, (_, i) => typeof raw.termTagPalette[i] === 'string' ? raw.termTagPalette[i] : '')
+      : d.termTagPalette,
+    updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : 0
+  };
+}
+function loadLocalPrefs(){
+  try{ return normalizePrefs(JSON.parse(localStorage.getItem(PREFS_KEY))); }
+  catch(e){ return defaultPrefs(); }
+}
+function saveLocalPrefs(prefs){
+  try{ localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); }
+  catch(e){ /* 無痕模式等寫入失敗：本次仍生效 */ }
+}
+
 /* 目前檔案的句段陣列替換（翻譯工作區各 action 共用；順帶蓋 updatedAt） */
 function withSegments(s, segments){
   return {
@@ -73,6 +110,8 @@ export const useStore = create(persist((set) => ({
   // 字級模式（V51）：desktop＝12/14/16/18/26、laptop＝10/12/14/16/24（27 吋與 13 吋螢幕各有舒適刻度）
   // 屬於裝置偏好：獨立鍵存 localStorage（不走 persist——那是工作資料的鏡像）
   fontMode: (() => { try{ return localStorage.getItem('catToolFontMode') === 'laptop' ? 'laptop' : 'desktop'; }catch(e){ return 'desktop'; } })(),
+  // 使用者偏好（V54）：標點三組/組別/固定、術語標籤面板；localStorage 即載，登入後與雲端對時
+  prefs: loadLocalPrefs(),
   // 雲端層（讀寫邏輯在 cloud.js，這裡只放需要驅動畫面的狀態）
   auth: { token: null, email: null },   // Supabase Auth session 映射（SDK 自動續期，無過期防護需求）
   cloudBusy: false,         // 儲存進行中（鎖「儲存至雲端」按鈕＋重入守門）
@@ -95,6 +134,19 @@ export const useStore = create(persist((set) => ({
     return { fontMode: next, termTip: null };
   }),
   setIngestLang: (which, value) => set(which === 'src' ? { ingestSrcLang: value } : { ingestTgtLang: value }),
+
+  // 偏好變更唯一入口：蓋 updatedAt＋寫 localStorage；雲端上傳由 cloud.js 訂閱 prefs 參照變化觸發
+  patchPrefs: (patch) => set(s => {
+    const prefs = { ...s.prefs, ...patch, updatedAt: Date.now() };
+    saveLocalPrefs(prefs);
+    return { prefs };
+  }),
+  // 雲端套用（cloud.js 對時後呼叫）：不蓋 updatedAt（保留雲端時間戳），同樣落地 localStorage
+  setPrefsFromCloud: (raw) => set(() => {
+    const prefs = normalizePrefs(raw);
+    saveLocalPrefs(prefs);
+    return { prefs };
+  }),
 
   setAuth: (patch) => set(s => ({ auth: { ...s.auth, ...patch } })),
   hideWelcome: () => set({ welcomeVisible: false }),

@@ -21,8 +21,10 @@ function downloadBlob(blob, filename) {
 const STAGGER_MS = 300;
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 function pickerTypes(filename) {
   if (filename.endsWith('.xlsx')) return [{ description: 'Excel 活頁簿', accept: { [XLSX_MIME]: ['.xlsx'] } }];
+  if (filename.endsWith('.docx')) return [{ description: 'Word 文件', accept: { [DOCX_MIME]: ['.docx'] } }];
   if (filename.endsWith('.json')) return [{ description: 'JSON', accept: { 'application/json': ['.json'] } }];
   if (filename.endsWith('.tmx')) return [{ description: 'TMX 翻譯記憶', accept: { 'application/xml': ['.tmx'] } }];
   if (filename.endsWith('.xlf')) return [{ description: 'XLIFF 雙語工作檔', accept: { 'application/xml': ['.xlf'] } }];
@@ -92,6 +94,68 @@ async function xlsxBlob(sheets) {
   return new Blob([buf], { type: XLSX_MIME });
 }
 
+/* ---------- docx（V59 微調3）：最小 OOXML 手寫產生器，零依賴 ----------
+   docx＝zip 容器（store 不壓縮）裝三個必要部件：[Content_Types].xml／_rels/.rels／word/document.xml */
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c;
+  }
+  return t;
+})();
+function crc32(u8) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+/* store 模式 zip：local header＋central directory＋EOCD（UTF-8 檔名旗標；日期填 1980-01-01 合法值） */
+function zipStore(files, mime) {
+  const enc = new TextEncoder();
+  const chunks = [], central = [];
+  let offset = 0;
+  files.forEach(f => {
+    const name = enc.encode(f.name), data = enc.encode(f.text);
+    const crc = crc32(data);
+    const local = new DataView(new ArrayBuffer(30));
+    local.setUint32(0, 0x04034b50, true);   // local file header 簽名
+    local.setUint16(4, 20, true);           // version needed
+    local.setUint16(6, 0x0800, true);       // UTF-8 檔名旗標
+    local.setUint16(8, 0, true);            // method＝store
+    local.setUint16(10, 0, true);           // mod time
+    local.setUint16(12, 0x21, true);        // mod date＝1980-01-01
+    local.setUint32(14, crc, true);
+    local.setUint32(18, data.length, true);
+    local.setUint32(22, data.length, true);
+    local.setUint16(26, name.length, true);
+    chunks.push(new Uint8Array(local.buffer), name, data);
+    const cen = new DataView(new ArrayBuffer(46));
+    cen.setUint32(0, 0x02014b50, true);     // central directory 簽名
+    cen.setUint16(4, 20, true);             // version made by
+    cen.setUint16(6, 20, true);             // version needed
+    cen.setUint16(8, 0x0800, true);         // UTF-8 檔名旗標
+    cen.setUint16(10, 0, true);             // method＝store
+    cen.setUint16(12, 0, true);             // mod time
+    cen.setUint16(14, 0x21, true);          // mod date＝1980-01-01
+    cen.setUint32(16, crc, true);
+    cen.setUint32(20, data.length, true);
+    cen.setUint32(24, data.length, true);
+    cen.setUint16(28, name.length, true);
+    cen.setUint32(42, offset, true);
+    central.push(new Uint8Array(cen.buffer), name);
+    offset += 30 + name.length + data.length;
+  });
+  const centralSize = central.reduce((a, u) => a + u.length, 0);
+  const eocd = new DataView(new ArrayBuffer(22));
+  eocd.setUint32(0, 0x06054b50, true);
+  eocd.setUint16(8, files.length, true);
+  eocd.setUint16(10, files.length, true);
+  eocd.setUint32(12, centralSize, true);
+  eocd.setUint32(16, offset, true);
+  return new Blob([...chunks, ...central, new Uint8Array(eocd.buffer)], { type: mime });
+}
+
 /* ---------- XML 共用 ---------- */
 function xmlEsc(s) {
   return String(s == null ? '' : s)
@@ -123,6 +187,49 @@ export function docBilingualAoA(doc) {
 export function docTargetAoA(doc) {
   const p = pairOf(doc);
   return [['標號', p.tgt], ...doc.segments.map(s => [s.srcNo || '', s.zh || ''])];
+}
+
+/* 譯文 docx（V59 微調3）：檔名（粗體）→空行→逐句段「標號（粗體）＋譯文＋空行」；
+   標號取「標號欄」原樣輸出（不另加前綴——原稿的 /1 這類斜線本就在欄位值裡）；
+   句段無標號就略過標號列只出譯文。譯文內換行以 <w:br/> 保留 */
+function wPara(text, bold) {
+  if (text === '') return '<w:p/>';
+  const boldPr = bold ? '<w:rPr><w:b/></w:rPr>' : '';
+  const lines = String(text).split('\n')
+    .map(l => `<w:t xml:space="preserve">${xmlEsc(l)}</w:t>`).join('<w:br/>');
+  return `<w:p><w:r>${boldPr}${lines}</w:r></w:p>`;
+}
+export function docTargetDocxXml(doc) {
+  const paras = [wPara(doc.name || 'document', true), '<w:p/>'];
+  doc.segments.forEach(s => {
+    if (s.srcNo) paras.push(wPara(String(s.srcNo), true));
+    paras.push(wPara(s.zh || '', false));
+    paras.push('<w:p/>');
+  });
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+    `<w:body>${paras.join('')}<w:sectPr/></w:body></w:document>`;
+}
+export function docxBlob(doc) {
+  return zipStore([
+    {
+      name: '[Content_Types].xml',
+      text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+        '<Default Extension="xml" ContentType="application/xml"/>' +
+        '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
+        '</Types>'
+    },
+    {
+      name: '_rels/.rels',
+      text: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>' +
+        '</Relationships>'
+    },
+    { name: 'word/document.xml', text: docTargetDocxXml(doc) }
+  ], DOCX_MIME);
 }
 
 /* TMX 1.4b：只用核心節點（tu/tuv/seg），segtype=sentence 誠實標註句級切分。
@@ -188,12 +295,13 @@ export function docXliff20String(doc) {
     `  <file id="f1" original="${xmlEsc(doc.name)}">\n${body}\n  </file>\n</xliff>\n`;
 }
 
-/* 單一文件依格式鍵組出檔案規格。fmt：bi-xlsx｜tgt-xlsx｜tmx｜xlf12｜xlf20｜json
-   （xlsx 後綴 V59 微調2 定案＝固定英文 _bilLang／_tgtLang） */
+/* 單一文件依格式鍵組出檔案規格。fmt：bi-xlsx｜tgt-xlsx｜tgt-docx｜tmx｜xlf12｜xlf20｜json
+   （xlsx/docx 後綴 V59 微調2 定案＝固定英文 _bilLang／_tgtLang） */
 function docFileSpec(doc, fmt) {
   const name = doc.name || 'document';
   if (fmt === 'bi-xlsx') return { filename: `${name}_bilLang.xlsx`, makeBlob: () => xlsxBlob([{ name, rows: docBilingualAoA(doc) }]) };
   if (fmt === 'tgt-xlsx') return { filename: `${name}_tgtLang.xlsx`, makeBlob: () => xlsxBlob([{ name, rows: docTargetAoA(doc) }]) };
+  if (fmt === 'tgt-docx') return { filename: `${name}_tgtLang.docx`, makeBlob: async () => docxBlob(doc) };
   if (fmt === 'tmx') return { filename: `${name}.tmx`, makeBlob: async () => xmlBlob(docTmxString(doc)) };
   if (fmt === 'xlf12') return { filename: `${name}_1.2.xlf`, makeBlob: async () => xmlBlob(docXliff12String(doc)) };
   if (fmt === 'xlf20') return { filename: `${name}_2.0.xlf`, makeBlob: async () => xmlBlob(docXliff20String(doc)) };

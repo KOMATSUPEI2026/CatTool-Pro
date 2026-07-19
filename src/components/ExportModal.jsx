@@ -54,7 +54,8 @@ export function docExportGroups(idPrefix) {
     {
       label: '譯文',
       options: [
-        { id: `${idPrefix}-tgt-xlsx`, key: 'tgt-xlsx', label: 'xlsx' }
+        { id: `${idPrefix}-tgt-xlsx`, key: 'tgt-xlsx', label: 'xlsx' },
+        { id: `${idPrefix}-tgt-docx`, key: 'tgt-docx', label: 'docx' }
       ]
     }
   ];

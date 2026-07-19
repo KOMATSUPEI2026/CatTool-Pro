@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { ExportPicker, docExportGroups } from './ExportModal.jsx';
 
 /* 行內改名輸入框（V57 建；V58 移入本檔供專案區表格與改名 Modal 共用）：
    Enter/失焦＝送出、Esc＝取消；Enter 須守 IME（isComposing/keyCode 229） */
@@ -142,21 +143,20 @@ export function DeleteBatchModal({ folderCount, docCount, onClose, onOk }) {
   );
 }
 
-/* 匯出文件：暫僅 JSON；其他格式下一輪再議 */
-export function ExportDocsModal({ total, selected, onClose, onExport }) {
+/* 匯出文件（V59，微調2 改勾選格式＋匯出鈕）：雙語｜譯文兩群組 toggle 複選，
+   格式清單與工作區匯出 Modal 共用（PmModal 殼＝專案區配色；
+   一份文件一個檔、勾選優先未勾匯全部維持 V58 語意） */
+export function ExportDocsModal({ total, selected, onClose, onSubmit }) {
   return (
     <PmModal title="匯出文件" onClose={onClose}>
       <p className="pm-hint" id="pm-export-summary">
         {selected > 0
           ? `將匯出已勾選的 ${selected} 件文件`
           : `未勾選文件，將匯出全部 ${total} 件文件`}<br />
-        每件文件各自產出一個 JSON 檔；其他匯出格式陸續開發中
+        每件文件各自產出一個檔案；「雙語」含原文與譯文、「譯文」僅譯文
       </p>
-      <div className="pm-export-actions">
-        <button className="btn seal small" id="pm-export-json" onClick={onExport}>
-          <i className="bi bi-filetype-json"></i> 匯出 JSON
-        </button>
-      </div>
+      <ExportPicker groups={docExportGroups('pm-export')}
+                    submitId="pm-export-submit" submitLabel="匯出文件" onSubmit={onSubmit} />
     </PmModal>
   );
 }

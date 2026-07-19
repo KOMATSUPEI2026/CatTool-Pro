@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useStore } from '../store.js';
-import { cid, docPair, downloadJSON, importJSON } from '../utils.js';
+import { cid, docPair, importJSON } from '../utils.js';
 import Pagination, { PAGE_SIZE, clampPage } from '../components/Pagination.jsx';
+import ExportModal from '../components/ExportModal.jsx';
+import { exportTerms } from '../exporters.js';
 
 function TermRow({ t }) {
   const updateTerm = useStore(s => s.updateTerm);
@@ -56,6 +58,7 @@ export default function TermsTab() {
 
   const [kw, setKw] = useState('');
   const [page, setPage] = useState(1);
+  const [exportOpen, setExportOpen] = useState(false);   // V59 匯出格式 Modal
 
   const kwT = kw.trim();
   // V54：搜尋涵蓋標籤（標籤是術語的屬性之一，沿用同一個搜尋框）
@@ -75,11 +78,24 @@ export default function TermsTab() {
     setTimeout(() => document.querySelector('#term-tbody input[data-field="ja"]')?.focus());
   };
 
-  const onExport = () => {
-    downloadJSON(termBase.map(t => {
-      const sl = t.srcLang || 'ja', tl = t.tgtLang || 'zh-TW';
-      return { [sl]: t.ja, [tl]: t.zh, note: t.note, tag: t.tag || '', source: t.source || '', srcLang: sl, tgtLang: tl };
-    }), 'termbase.json');
+  /* V59：匯出 Modal 勾選格式（xlsx＝依語言對分工作表／JSON＝既有格式）→ 匯出鈕一次執行；
+     可指定儲存路徑（picker 取消回傳 0 不跳 Toast） */
+  const openExport = () => {
+    if (termBase.length === 0) { showToast('尚無詞彙可匯出'); return; }
+    setExportOpen(true);
+  };
+  const exportGroups = [{
+    label: '',
+    row: true,   // V59 微調：單群組按鈕水平並排
+    options: [
+      { id: 'terms-export-xlsx', key: 'xlsx', label: 'xlsx' },
+      { id: 'terms-export-json', key: 'json', label: 'JSON' }
+    ]
+  }];
+  const onExportSubmit = async (fmts) => {
+    setExportOpen(false);
+    const n = await exportTerms(termBase, fmts);
+    if (n > 0) showToast(`已匯出詞彙（${n} 個檔案）`);
   };
 
   const onImport = (e) => {
@@ -100,15 +116,24 @@ export default function TermsTab() {
   return (
     <div className="card">
       <div className="table-toolbar">
-        <input className="search-box" id="term-search" placeholder="搜尋原文、譯名或標籤…"
-               value={kw} onChange={e => { setKw(e.target.value); setPage(1); }} />
+        <span className="search-wrap">
+          <i className="bi bi-search"></i>
+          <input className="search-box" id="term-search" placeholder="搜尋原文、譯名或標籤…"
+                 value={kw} onChange={e => { setKw(e.target.value); setPage(1); }} />
+        </span>
         <span className="search-no-result" id="term-no-result"
               style={{ display: (kwT && filtered.length === 0) ? 'inline' : 'none' }}>無匹配的搜尋結果</span>
-        <div style={{ display: 'flex', gap: 16 }}>
-          <button className="btn outline small" id="btn-add-term" onClick={onAdd}>+ 新增詞條</button>
-          <button className="btn outline small" id="btn-export-terms" onClick={onExport}>匯出 JSON</button>
-          <label className="btn outline small" style={{ margin: 0 }}>
-            匯入 JSON<input type="file" id="file-import-terms" accept="application/json" onChange={onImport} />
+        {/* V59：三鈕改純 icon＋data-tip（匯出開格式 Modal；匯入維持 JSON） */}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="icon-btn" id="btn-add-term" data-tip="新增詞條" onClick={onAdd}>
+            <i className="bi bi-pencil"></i>
+          </button>
+          <button className="icon-btn" id="btn-export-terms" data-tip="匯出詞彙" onClick={openExport}>
+            <i className="bi bi-cloud-download"></i>
+          </button>
+          <label className="icon-btn tip-right" data-tip="匯入詞彙（JSON）" style={{ margin: 0, display: 'inline-block' }}>
+            <i className="bi bi-cloud-plus"></i>
+            <input type="file" id="file-import-terms" accept="application/json" onChange={onImport} />
           </label>
         </div>
       </div>
@@ -132,8 +157,12 @@ export default function TermsTab() {
         <Pagination total={filtered.length} page={cur} onPage={setPage} />
       </div>
       <div className="empty" id="term-empty" style={{ display: termBase.length === 0 ? 'block' : 'none' }}>
-        尚無術語。點「+新增詞條」或在翻譯工作區反白原文新增。
+        尚無術語。點右上「新增詞條」圖示或在翻譯工作區反白原文新增。
       </div>
+      {exportOpen &&
+        <ExportModal title="匯出詞彙" groups={exportGroups}
+                     submitId="terms-export-submit" submitLabel="匯出詞彙"
+                     onSubmit={onExportSubmit} onClose={() => setExportOpen(false)} />}
     </div>
   );
 }

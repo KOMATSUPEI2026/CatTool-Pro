@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useStore } from '../store.js';
-import { cid, docStats, docPair, downloadJSON, findTermHits, langName } from '../utils.js';
+import { cid, docStats, docPair, findTermHits, langName } from '../utils.js';
+import { exportDocs } from '../exporters.js';
 import { autoGrow, autoGrowAll, insertIntoSeg } from '../workActions.js';
 import { saveSegmentNow } from '../cloud.js';
 import ConfirmModal from '../components/ConfirmModal.jsx';
@@ -9,6 +10,7 @@ import TermModal from '../components/TermModal.jsx';
 import { SegEditModal, SegOrderModal, SegMergeModal, SegAddModal, SegDeleteModal } from '../components/SegToolModals.jsx';
 import PagePreview from '../components/PagePreview.jsx';
 import TmSenseModal from '../components/TmSenseModal.jsx';
+import ExportModal, { docExportGroups } from '../components/ExportModal.jsx';
 
 const VIEW_MODES = [
   { key: 'review',    label: '校閱模式' },
@@ -279,13 +281,13 @@ export default function WorkTab() {
     undoSearchReplace();
   };
 
-  const onExport = () => {
+  /* V59：匯出 Modal 勾選格式（可跨雙語/譯文複選）→ 匯出鈕一次執行，單檔走與專案區
+     批次同一條匯出管線；可指定儲存路徑（picker 取消時回傳 0，不跳 Toast） */
+  const onPickExport = async (fmts) => {
     if (!doc) return;
-    const p = docPair(doc);
-    downloadJSON(doc.segments.map(s => ({
-      [p.src]: s.ja, [p.tgt]: s.zh,
-      confirmed: !!s.confirmed, reviewed: !!s.reviewed, source: doc.name, srcLang: p.src, tgtLang: p.tgt
-    })), (doc.name || 'segments') + '.json');
+    setModal(null);
+    const n = await exportDocs([doc], fmts);
+    if (n > 0) showToast(`已匯出「${doc.name}」（${n} 個檔案）`);
   };
 
   /* 術語 Modal 送出（新增/編輯共用；提示卡編輯與反白新增都走這裡）；V54 帶標籤 */
@@ -329,7 +331,11 @@ export default function WorkTab() {
             <button className="icon-btn" id="btn-seg-reorder" data-tip="重新排列原文" onClick={() => onSegTool('segOrder')}><i className="bi bi-arrow-down-up"></i></button>
             <button className="icon-btn" id="btn-seg-merge" data-tip="合併原文" onClick={() => onSegTool('segMerge')}><i className="bi bi-arrows-collapse"></i></button>
             <button className="icon-btn" id="btn-seg-add" data-tip="新增原文" onClick={() => onSegTool('segAdd')}><i className="bi bi-plus-lg"></i></button>
-            <button className="icon-btn tip-right" id="btn-seg-delete" data-tip="刪除原文" onClick={() => onSegTool('segDelete')}><i className="bi bi-trash3"></i></button>
+            <button className="icon-btn" id="btn-seg-delete" data-tip="刪除原文" onClick={() => onSegTool('segDelete')}><i className="bi bi-trash3"></i></button>
+            <button className="icon-btn tip-right" id="btn-export-doc" data-tip="匯出文件"
+                    onClick={() => { if (!doc) { showToast('尚未開啟任何檔案'); return; } setTermTip(null); setModal({ type: 'export' }); }}>
+              <i className="bi bi-cloud-download"></i>
+            </button>
           </span>
         </div>
         {/* V52：進度全面改「明確標記制」——翻譯進度＝已翻譯（confirmed）、校對進度＝已校對（reviewed）；
@@ -387,11 +393,6 @@ export default function WorkTab() {
         {doc ? '這個檔案沒有任何句段。' : '尚未開啟任何檔案。請先到「專案管理區」開啟一個檔案。'}
       </div>
 
-      <div className="import-row" style={{ marginTop: 10, display: (doc && doc.segments.length > 0) ? 'flex' : 'none' }} id="export-row">
-        <span className="hint">完成的句段可匯出，銜接後續排版流程</span>
-        <button className="btn outline small" id="btn-export-work" onClick={onExport}>匯出 JSON</button>
-      </div>
-
       <TermTip
         onEdit={(term, prefillJa) => setModal({ type: 'term', term, prefillJa })}
         onDelete={(term) => setModal({ type: 'delTerm', term })} />
@@ -435,6 +436,11 @@ export default function WorkTab() {
       {modal?.type === 'pagePreview' && <PagePreview doc={doc} onClose={() => setModal(null)} />}
 
       {modal?.type === 'tmSense' && <TmSenseModal onClose={() => setModal(null)} />}
+
+      {modal?.type === 'export' && doc &&
+        <ExportModal title="匯出文件" groups={docExportGroups('work-export')}
+                     submitId="work-export-submit" submitLabel="匯出文件"
+                     onSubmit={onPickExport} onClose={() => setModal(null)} />}
 
       {modal?.type === 'segEdit'   && <SegEditModal   doc={doc} onClose={() => setModal(null)} />}
       {modal?.type === 'segOrder'  && <SegOrderModal  doc={doc} onClose={() => setModal(null)} />}

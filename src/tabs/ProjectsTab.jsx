@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useStore } from '../store.js';
-import { docPair, docStats, docStatus, downloadJSON, fmtDate } from '../utils.js';
+import { docStats, docStatus, fmtDate } from '../utils.js';
+import { exportDocs } from '../exporters.js';
 import NewFolderModal from '../components/NewFolderModal.jsx';
 import { NameEditor, RenameListModal, MoveDocsModal, DeleteBatchModal, ExportDocsModal }
   from '../components/ProjectModals.jsx';
@@ -161,23 +162,16 @@ export default function ProjectsTab() {
     if (selDocIds().length === 0 && selFolderIds().length === 0) { showToast('請先勾選要刪除的資料夾或文件'); return; }
     setModal({ type: 'delBatch' });
   };
-  /* 匯出＝一份文件一個 JSON（V58 微調定案，不整批包一起）；格式與工作區「匯出 JSON」同
-     （動態鍵名句段列陣列，可直接銜接既有匯入相容格式）。多檔下載間隔 300ms 錯開，
-     避免瀏覽器把連續程式化下載視為一次手勢只放行第一個 */
-  const onExportJSON = () => {
+  /* 匯出＝一份文件一個檔（V58 微調定案，不整批包一起）；V59 起格式在 Modal 內選
+     （雙語 xlsx/TMX/XLF1.2/XLF2.0/JSON、譯文 xlsx/JSON），下載管線與工作區共用
+     exporters.exportDocs（多檔 300ms 錯開，避免瀏覽器只放行第一個下載） */
+  const onPickExport = async (fmts) => {
     const sel = new Set(selDocIds());
     const docs = sel.size ? documents.filter(d => sel.has(d.id)) : documents;
     if (docs.length === 0) { showToast('尚無文件可匯出'); return; }
-    docs.forEach((doc, i) => {
-      const p = docPair(doc);
-      const rows = doc.segments.map(s => ({
-        [p.src]: s.ja, [p.tgt]: s.zh,
-        confirmed: !!s.confirmed, reviewed: !!s.reviewed, source: doc.name, srcLang: p.src, tgtLang: p.tgt
-      }));
-      setTimeout(() => downloadJSON(rows, (doc.name || 'document') + '.json'), i * 300);
-    });
     setModal(null);
-    showToast(`已匯出 ${docs.length} 件文件（每件各一個 JSON）`);
+    const n = await exportDocs(docs, fmts);   // 文件×格式逐檔產出；picker 取消回傳 0 不跳 Toast
+    if (n > 0) showToast(`已匯出 ${docs.length} 件文件（共 ${n} 個檔案）`);
   };
 
   const endDrag = () => { setDragDocId(null); setDragOver(null); };
@@ -324,7 +318,7 @@ export default function ProjectsTab() {
       {modal?.type === 'export' &&
         <ExportDocsModal total={documents.length} selected={selDocIds().length}
                          onClose={() => setModal(null)}
-                         onExport={onExportJSON} />}
+                         onSubmit={onPickExport} />}
     </div>
   );
 }

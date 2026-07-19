@@ -1100,7 +1100,16 @@ ul, ol { list-style: none; padding: 0; }
   .pm-empty{font-size:var(--fs-sm);color:var(--ink-soft);padding:4px 0;}
   .pm-hint{font-size:var(--fs-sm);color:var(--ink-soft);line-height:1.8;margin:0 0 12px;}
   .pm-hint b{color:var(--ink);}
-  .pm-export-actions{display:flex;justify-content:center;padding:4px 0 8px;}
+  /* V59 匯出 Modal：雙語｜譯文左右群組（工作區/術語庫/TM 用 modal-card 殼、專案區用 PmModal 殼，內容排版共用）。
+     微調2：格式鈕改 toggle 複選（未選 outline／已選 seal 實心）＋底部滿版匯出鈕；標題黑字（覆蓋置中殼的朱紅） */
+  .export-modal{width:440px;}
+  .modal-card.modal-card-center.export-modal h3{color:var(--ink);}   /* 蓋過置中殼的朱紅標題 */
+  .export-submit{display:block;width:100%;margin-top:16px;}
+  .export-groups{display:flex;justify-content:center;align-items:flex-start;gap:48px;padding:8px 0 6px;}
+  .export-group{display:flex;flex-direction:column;align-items:center;gap:12px;min-width:120px;}
+  .export-group.row{flex-direction:row;}   /* V59 微調：術語庫/TM 單群組按鈕水平並排 */
+  .export-group h4{margin:0 0 2px;font-family:var(--font-display);font-size:var(--fs-md);font-weight:700;color:var(--seal);}
+  .export-fmt-btn{width:120px;}
 
   /* pagination（術語庫/翻譯記憶共用） */
   .pagination{display:flex;justify-content:center;align-items:center;gap:8px;padding:14px 0 16px;flex-wrap:wrap;}

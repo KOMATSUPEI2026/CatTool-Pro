@@ -1110,6 +1110,13 @@ ul, ol { list-style: none; padding: 0; }
   .export-group.row{flex-direction:row;}   /* V59 微調：術語庫/TM 單群組按鈕水平並排 */
   .export-group h4{margin:0 0 2px;font-family:var(--font-display);font-size:var(--fs-md);font-weight:700;color:var(--seal);}
   .export-fmt-btn{width:120px;}
+  /* V60 匯入確認 Modal（術語庫/TM 共用；沿用 export-modal 殼＝標題黑字） */
+  .import-summary{font-size:var(--fs-sm);color:var(--ink);line-height:1.8;text-align:center;padding:4px 0 6px;}
+  .import-summary ul{list-style:none;margin:0 0 8px;padding:0;}
+  .import-summary b{color:var(--seal);}
+  .import-file{color:var(--ink-soft);word-break:break-all;margin:0 0 8px;}
+  .import-file .bi{color:var(--seal);}
+  .import-skip{color:var(--ink-soft);margin:2px 0;}
 
   /* pagination（術語庫/翻譯記憶共用） */
   .pagination{display:flex;justify-content:center;align-items:center;gap:8px;padding:14px 0 16px;flex-wrap:wrap;}

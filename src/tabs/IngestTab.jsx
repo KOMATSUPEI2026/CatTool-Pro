@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useStore } from '../store.js';
 import { cid, segmentText, uniqueDocName, langName, LANG_NAMES } from '../utils.js';
+import { parseXliffString, parseDocxFile } from '../importers.js';
 
 const SRC_OPTS = ['ja', 'zh-TW', 'zh-HK', 'zh-CN', 'zh-SG', 'en', 'en-US', 'en-GB', 'ko', 'fr', 'de', 'es', 'vi', 'th'];
 const TGT_OPTS = ['zh-TW', 'zh-HK', 'zh-CN', 'zh-SG', 'en', 'en-US', 'en-GB', 'ja', 'ko', 'fr', 'de', 'es', 'vi', 'th'];
 
-const DROP_IDLE = { title: '拖入 .xlsx 檔案', detail: '或點擊選擇檔案｜每個分頁（P001、P002…）建立一個文件' };
+const DROP_IDLE = { title: '拖入 .xlsx／.xlf／.docx 檔案', detail: '或點擊選擇檔案｜xlsx 每個分頁（P001、P002…）建立一個文件；XLIFF 依檔內語系自動建檔；docx＝原文入稿自動分句' };
 
 export default function IngestTab() {
   const src = useStore(s => s.ingestSrcLang);
@@ -25,12 +26,13 @@ export default function IngestTab() {
 
   const ready = !!src && !!tgt && src !== tgt;
 
-  /* 閘門：語系未配對完成前，兩條入稿路徑都封鎖；配對改變時作廢已暫存的 xlsx */
+  /* 閘門：語系未配對完成前，貼上與 xlsx 兩條入稿路徑都封鎖；配對改變時作廢已暫存的 xlsx。
+     V60：XLIFF 語系以檔內宣告為準、不受閘門限制，語系改變也不作廢 xlf 暫存 */
   const onLangChange = (which, value) => {
-    if (staged) {
+    if (staged && !staged.isXliff) {
       // 語系改變 → 已暫存的 xlsx 是用舊語系解析的，一律作廢重拖
       setStaged(null);
-      setDropMsg({ title: '拖入 .xlsx 檔案', detail: '語系配對已變更，請重新拖入檔案｜每個分頁（P001、P002…）建立一個文件' });
+      setDropMsg({ title: '拖入 .xlsx／.xlf 檔案', detail: '語系配對已變更，請重新拖入檔案｜每個分頁（P001、P002…）建立一個文件' });
     }
     setIngestLang(which, value);
   };
@@ -52,16 +54,55 @@ export default function IngestTab() {
     setDocName('');
   };
 
-  /* ---------- xlsx 解析暫存 ---------- */
-  const parseXlsxFile = (file) => {
+  /* ---------- V60：XLIFF 解析暫存（語系以檔內宣告為準，不走語系閘門） ---------- */
+  const parseXlfFile = (file) => {
+    file.text().then(text => {
+      const fallback = file.name.replace(/\.xlf$/i, '');
+      const { src: xs, tgt: xt, sheets, skipped } = parseXliffString(text, fallback);
+      setStaged({ fileName: file.name, sheets, src: xs, tgt: xt, skipped, isXliff: true });
+    }).catch(err => {
+      setStaged(null);
+      setDropMsg({ title: 'XLIFF 解析失敗', detail: err.message || '檔案可能損壞，請重新拖入 .xlf' });
+    });
+  };
+
+  /* ---------- V60 微調：docx 原文入稿（走語系閘門；抽段落→貼上入稿同款分句規則） ---------- */
+  const parseDocxDrop = (file) => {
     if (!ready) {
       setStaged(null);
-      setDropMsg({ title: '請先選擇語系', detail: '選好來源與目標語系後，再拖入 .xlsx 檔案' });
+      setDropMsg({ title: '請先選擇語系', detail: '選好來源與目標語系後，再拖入 .docx 檔案' });
       return;
     }
+    parseDocxFile(file).then(paras => {
+      const parts = segmentText(paras.join('\n'));
+      if (parts.length === 0) {
+        setStaged(null);
+        setDropMsg({ title: '讀不到可匯入的資料', detail: 'docx 內沒有文字段落' });
+        return;
+      }
+      const name = file.name.replace(/\.docx$/i, '');
+      setStaged({
+        fileName: file.name, src, tgt, skipped: [], isDocx: true,
+        sheets: [{ name, rows: parts.map(t => ({ ja: t, zh: '', srcNo: null })) }]
+      });
+    }).catch(err => {
+      setStaged(null);
+      setDropMsg({ title: 'docx 解析失敗', detail: err.message || '檔案可能損壞，請重新拖入 .docx' });
+    });
+  };
+
+  /* ---------- 檔案分流＋xlsx 解析暫存 ---------- */
+  const parseDropFile = (file) => {
+    if (/\.xlf$/i.test(file.name)) { parseXlfFile(file); return; }
+    if (/\.docx$/i.test(file.name)) { parseDocxDrop(file); return; }
     if (!/\.xlsx$/i.test(file.name)) {
       setStaged(null);
-      setDropMsg({ title: '檔案格式不符', detail: '請拖入 .xlsx 檔案' });
+      setDropMsg({ title: '檔案格式不符', detail: '請拖入 .xlsx、.xlf 或 .docx 檔案' });
+      return;
+    }
+    if (!ready) {
+      setStaged(null);
+      setDropMsg({ title: '請先選擇語系', detail: '選好來源與目標語系後，再拖入 .xlsx／.docx 檔案（.xlf 依檔內語系、不需先選）' });
       return;
     }
     Promise.all([import('xlsx'), file.arrayBuffer()]).then(([XLSX, buf]) => {
@@ -186,7 +227,7 @@ export default function IngestTab() {
         <input type="text" id="xlsx-prefix" className="doc-name-input"
                placeholder="例：迫力（文件名將為「迫力-P030」；留空則直接用分頁名 P030）"
                value={prefix} onChange={e => setPrefix(e.target.value)} />
-        <label>拖入 Excel 資料後，點擊「建立檔案」送入專案管理區</label>
+        <label>拖入 Excel、XLIFF（.xlf）或 Word（.docx）資料後，點擊「建立檔案」送入專案管理區</label>
         <div className={'xlsx-drop' + (staged ? ' staged' : '') + (dragover ? ' dragover' : '')} id="xlsx-drop"
              onClick={() => document.getElementById('xlsx-file').click()}
              onDragOver={e => { e.preventDefault(); setDragover(true); }}
@@ -194,12 +235,16 @@ export default function IngestTab() {
              onDrop={e => {
                e.preventDefault();
                setDragover(false);
-               if (e.dataTransfer.files[0]) parseXlsxFile(e.dataTransfer.files[0]);
+               if (e.dataTransfer.files[0]) parseDropFile(e.dataTransfer.files[0]);
              }}>
           {staged ? (
             <>
               <div className="staged-file"><i className="bi bi-file-earmark-spreadsheet"></i> {staged.fileName}</div>
               <div className="staged-detail">{staged.sheets.length} 個分頁、共 {totalSegs} 個句段</div>
+              {staged.isXliff &&
+                <div className="staged-detail" id="xlf-lang-detail">
+                  檔內語系：{langName(staged.src)}（{staged.src}）→ {langName(staged.tgt)}（{staged.tgt}）
+                </div>}
               <div className="staged-detail">{staged.sheets.map(s => `${s.name}（${s.rows.length} 段）`).join('、')}</div>
               {staged.skipped.length > 0 &&
                 <div className="staged-detail">略過分頁：{staged.skipped.join('、')}</div>}
@@ -212,9 +257,9 @@ export default function IngestTab() {
             </>
           )}
         </div>
-        <input type="file" id="xlsx-file" accept=".xlsx"
+        <input type="file" id="xlsx-file" accept=".xlsx,.xlf,.docx"
                onChange={e => {
-                 if (e.target.files[0]) parseXlsxFile(e.target.files[0]);
+                 if (e.target.files[0]) parseDropFile(e.target.files[0]);
                  e.target.value = '';
                }} />
         <div className="import-row">
@@ -222,7 +267,8 @@ export default function IngestTab() {
             {ready ? `僅讀取 ${src} / ${tgt} 兩欄；空白模板列自動略過`
                    : '僅讀取來源／目標語系兩欄；空白模板列自動略過'}
           </span>
-          <button className="btn vermilion" id="btn-xlsx-create" disabled={!ready || !staged} onClick={onXlsxCreate}>
+          <button className="btn vermilion" id="btn-xlsx-create"
+                  disabled={!staged || (!staged.isXliff && !ready)} onClick={onXlsxCreate}>
             建立檔案 <i className="bi bi-arrow-right"></i>
           </button>
         </div>

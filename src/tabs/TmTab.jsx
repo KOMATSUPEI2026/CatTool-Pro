@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import { useStore } from '../store.js';
-import { cid, importJSON } from '../utils.js';
+import { cid } from '../utils.js';
 import Pagination, { PAGE_SIZE, clampPage } from '../components/Pagination.jsx';
 import ExportModal from '../components/ExportModal.jsx';
+import ImportConfirmModal from '../components/ImportConfirmModal.jsx';
 import { exportTm, tmTmxFiles } from '../exporters.js';
+import { parseTmFile, dedupeRows } from '../importers.js';
+import { autoSaveAfterSegTool } from '../cloud.js';
 
 export default function TmTab() {
   const tmSegments = useStore(s => s.tmSegments);
@@ -14,6 +17,7 @@ export default function TmTab() {
   const [kw, setKw] = useState('');
   const [page, setPage] = useState(1);
   const [exportOpen, setExportOpen] = useState(false);   // V59 匯出格式 Modal
+  const [importStaged, setImportStaged] = useState(null); // V60 匯入確認 Modal 暫存
 
   const kwT = kw.trim();
   const filtered = tmSegments.filter(t => !kwT || t.ja.includes(kwT) || t.zh.includes(kwT));
@@ -45,19 +49,27 @@ export default function TmTab() {
     if (n > 0) showToast(skipTmx ? `已匯出 ${n} 個檔案（無含譯文記憶，TMX 略過）` : `已匯出翻譯記憶（${n} 個檔案）`);
   };
 
-  const onImport = (e) => {
-    importJSON(e.target.files[0], (data) => {
-      if (!Array.isArray(data)) { showToast('檔案格式不正確（需為陣列）'); return; }
-      const incoming = [];
-      data.forEach(d => {
-        const sl = d.srcLang || 'ja', tl = d.tgtLang || 'zh-TW';
-        const src = d[sl] !== undefined ? d[sl] : d.ja;   // 新格式動態鍵，退回舊格式 ja
-        const tgt = d[tl] !== undefined ? d[tl] : d.zh;
-        if (src) incoming.push({ id: cid(), ja: src, zh: tgt || '', source: d.source || '', srcLang: sl, tgtLang: tl });
-      });
-      importTmSegments(incoming);
-    }, (msg) => showToast('JSON 解析失敗：' + msg));
+  /* V60：TMX（多語攤平成多語言對）＋xlsx（五欄，與匯出對稱）＋JSON 同一條管線——
+     解析→去重（同語言對＋同原文＋同譯文＝重複跳過，譯文不同並存）→確認 Modal 才入庫 */
+  const onImport = async (e) => {
+    const file = e.target.files[0];
     e.target.value = '';
+    if (!file) return;
+    try {
+      const { rows, skippedLang, skippedSheets } = await parseTmFile(file);
+      const { fresh, dupCount } = dedupeRows(rows, tmSegments);
+      setImportStaged({ fileName: file.name, fresh, dupCount, skippedLang, skippedSheets });
+    } catch (err) {
+      showToast('匯入解析失敗：' + err.message);
+    }
+  };
+  const onImportConfirm = () => {
+    const fresh = importStaged.fresh;
+    importTmSegments(fresh.map(r => ({ id: cid(), ...r })));
+    setImportStaged(null);
+    setPage(1);
+    autoSaveAfterSegTool();   // 批量入庫即存雲端（訪客靜默交保底機制）
+    showToast(`已匯入 ${fresh.length} 筆翻譯記憶`);
   };
 
   return (
@@ -75,9 +87,9 @@ export default function TmTab() {
           <button className="icon-btn" id="btn-export-tm" data-tip="匯出翻譯記憶" onClick={openExport}>
             <i className="bi bi-cloud-download"></i>
           </button>
-          <label className="icon-btn tip-right" data-tip="匯入翻譯記憶（JSON）" style={{ margin: 0, display: 'inline-block' }}>
+          <label className="icon-btn tip-right" data-tip="匯入翻譯記憶（TMX / xlsx / JSON）" style={{ margin: 0, display: 'inline-block' }}>
             <i className="bi bi-cloud-plus"></i>
-            <input type="file" id="file-import-tm" accept="application/json" onChange={onImport} />
+            <input type="file" id="file-import-tm" accept=".tmx,.xlsx,.json" onChange={onImport} />
           </label>
         </div>
       </div>
@@ -117,6 +129,9 @@ export default function TmTab() {
         <ExportModal title="匯出翻譯記憶" groups={exportGroups}
                      submitId="tm-export-submit" submitLabel="匯出翻譯記憶"
                      onSubmit={onExportSubmit} onClose={() => setExportOpen(false)} />}
+      {importStaged &&
+        <ImportConfirmModal title="匯入翻譯記憶" staged={importStaged}
+                            onConfirm={onImportConfirm} onClose={() => setImportStaged(null)} />}
     </div>
   );
 }

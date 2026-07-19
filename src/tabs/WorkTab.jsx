@@ -415,7 +415,7 @@ export default function WorkTab() {
         <ConfirmModal title="重置翻譯進度" cancelLabel="取消重置" okLabel="確定重置" wide
                       onCancel={() => setModal(null)}
                       onOk={() => { resetConfirmed(); setModal(null); }}>
-          有 {modal.n} 句已翻譯（校對）句段將退回未翻譯。<br />譯文＆翻譯記憶皆保留，請重新逐句按 Tab 確認。
+          有 {modal.n} 句已翻譯（校對）句段將退回未翻譯<br />譯文＆翻譯記憶皆保留，請重新逐句按 Tab 確認
         </ConfirmModal>}
 
       {modal?.type === 'reset' && workMode === 'review' &&

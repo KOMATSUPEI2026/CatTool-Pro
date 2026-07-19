@@ -41,6 +41,8 @@ ul, ol { list-style: none; padding: 0; }
     --fs-lg:18px;   /* 重點：原文(×text-scale)/Modal 標題 */
     --fs-xl:26px;   /* 標題：H1/歡迎面板 */
     --hist-accent:#B4622D;   /* 歷史紀錄專屬柿茶橘（把手/還原鈕；亮暗各一階） */
+    --st-done:#F7D94C;       /* V57 專案狀態徽章「已完成」黃（亮暗各一階，配深色字保對比） */
+    --st-done-text:#272522;
     --cmt-accent:#B4622D;    /* 留言功能柿茶橘（V55：把手/tab 底線/點線/引用文字；與歷史同值但語意分開） */
     --cmt-accent-soft:rgba(180,98,45,0.12);
     --radius-xs:2px;
@@ -104,6 +106,8 @@ ul, ol { list-style: none; padding: 0; }
     --hist-accent:#DD8F53;
     --cmt-accent:#DD8F53;
     --cmt-accent-soft:rgba(221,143,83,0.16);
+    --st-done:#FBE251;
+    --st-done-text:#1B1A17;
     --glass-bg:rgba(27,26,23,0.5);
   }
   html,body{padding:0;}
@@ -1025,10 +1029,78 @@ ul, ol { list-style: none; padding: 0; }
   .folder-toggle{display:inline-block;width:14px;color:var(--ink-soft);}
   .folder-count{color:var(--ink-soft);font-weight:400;margin-left:4px;}
   .folder-sums{float:right;color:var(--ink-soft);font-weight:400;font-size:var(--fs-sm);}
-  .doc-folder-select{
-    font-size:var(--fs-sm);border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface-input);
-    color:var(--ink);padding:2px 4px;margin-right:6px;max-width:96px;
+  /* V57 專案管理區：拖曳歸檔＋狀態徽章＋雙擊改名＋checkbox（doc-folder-select 下拉已隨 V57 除役） */
+  .search-wrap{position:relative;display:inline-flex;align-items:center;}
+  .search-wrap .bi-search{position:absolute;left:10px;color:var(--ink-soft);font-size:var(--fs-sm);pointer-events:none;}
+  .search-wrap .search-box{padding-left:32px;}
+  .check-cell{width:28px;padding-right:0;}
+  tbody input.row-check{width:auto;accent-color:var(--seal);cursor:pointer;display:block;}
+  .folder-name{cursor:pointer;}
+  .rename-input{
+    width:220px;font-size:var(--fs-md);font-weight:600;border:1px solid var(--vermilion);
+    border-radius:var(--radius-sm);background:var(--surface-input);color:var(--ink);padding:2px 6px;
   }
+  .rename-input:focus{outline:none;}
+  .st-badge{
+    display:inline-block;font-size:var(--fs-xs);font-weight:600;border-radius:var(--radius-sm);
+    padding:2px 8px;color:var(--on-accent);white-space:nowrap;
+  }
+  .st-badge.st-pending{background:var(--ink-soft);}
+  .st-badge.st-translating{background:var(--vermilion);}
+  .st-badge.st-reviewing{background:var(--seal);}
+  .st-badge.st-done{background:var(--st-done);color:var(--st-done-text);}
+  #project-tbody tr[draggable="true"]{cursor:grab;}
+  #project-tbody tr.dragging{opacity:.5;}
+  .proj-folder-row.drop-hover td{background:var(--seal-soft2);}
+  .uncat-drop-row td{
+    text-align:center;color:var(--ink-soft);font-size:var(--fs-sm);
+    border:2px dashed var(--line);padding:12px 10px;
+  }
+  .uncat-drop-row.drop-hover td{border-color:var(--seal);color:var(--seal);background:var(--seal-soft);}
+
+  /* V58 專案管理區五大 icon 鈕＋Modal 家族（色帶標題列，參考圖重配色為站內 teal） */
+  .proj-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}   /* 鈕距用 .icon-btn 基準 6px 24px（V58 微調2 放大好點擊） */
+  .btn.seal{background:var(--seal);border-color:var(--seal);color:var(--on-accent);}
+  .btn.seal:hover{background:var(--vermilion);border-color:var(--vermilion);opacity:1;}   /* pm 家族主鈕 hover 轉朱紅 */
+  .btn.seal:disabled:hover{background:var(--seal);border-color:var(--seal);}
+  .pm-modal{padding:0;width:420px;overflow:hidden;}
+  .pm-modal-head{
+    display:flex;align-items:center;justify-content:center;position:relative;
+    background:var(--seal);color:var(--on-accent);padding:12px 44px;
+  }
+  .pm-modal-head h3{margin:0;font-family:var(--font-display);font-size:var(--fs-lg);color:var(--on-accent);}
+  .pm-modal-x{
+    position:absolute;right:12px;top:50%;transform:translateY(-50%);
+    background:none;border:none;cursor:pointer;color:var(--on-accent);
+    font-size:var(--fs-lg);line-height:1;padding:4px;opacity:.85;transition:opacity .15s;
+  }
+  .pm-modal-x:hover{opacity:1;}
+  .pm-modal-body{padding:16px 18px;max-height:56vh;overflow-y:auto;}
+  .pm-modal-foot{display:flex;justify-content:flex-end;gap:8px;padding:0 18px 16px;}
+  .pm-sec{font-size:var(--fs-sm);color:var(--ink-soft);font-weight:600;margin:12px 0 6px;}
+  .pm-sec:first-child{margin-top:0;}
+  .pm-tabs{display:flex;gap:16px;border-bottom:1px solid var(--line);margin-bottom:12px;}
+  .pm-tabs button{
+    background:none;border:none;cursor:pointer;font-family:var(--font-ui);
+    font-size:var(--fs-sm);font-weight:600;color:var(--ink-soft);
+    padding:6px 2px 8px;border-bottom:2px solid transparent;margin-bottom:-1px;
+  }
+  .pm-tabs button.active{color:var(--ink);border-bottom-color:var(--seal);}
+  .pm-tabs button .bi{color:var(--seal);}
+  .pm-list{display:flex;flex-direction:column;gap:2px;}
+  .pm-item{
+    display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius);
+    cursor:pointer;font-size:var(--fs-md);color:var(--ink);
+  }
+  .pm-item:hover{background:var(--hover-tint);}
+  .pm-item.selected{background:var(--seal-soft);}
+  .pm-item .bi{color:var(--seal);flex-shrink:0;}
+  .pm-item .pm-check{margin-left:auto;visibility:hidden;}
+  .pm-item.selected .pm-check{visibility:visible;}
+  .pm-empty{font-size:var(--fs-sm);color:var(--ink-soft);padding:4px 0;}
+  .pm-hint{font-size:var(--fs-sm);color:var(--ink-soft);line-height:1.8;margin:0 0 12px;}
+  .pm-hint b{color:var(--ink);}
+  .pm-export-actions{display:flex;justify-content:center;padding:4px 0 8px;}
 
   /* pagination（術語庫/翻譯記憶共用） */
   .pagination{display:flex;justify-content:center;align-items:center;gap:8px;padding:14px 0 16px;flex-wrap:wrap;}

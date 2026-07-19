@@ -37,6 +37,14 @@ const lazyJSONStorage = {
 };
 window.addEventListener('beforeunload', flushPersist);
 
+/* V57：資料夾「有檔案→變空」的瞬間自動消滅；新建的空資料夾不受影響（消滅只由搬移/刪除觸發） */
+function pruneEmptiedFolder(folders, documents, folderId){
+  if(!folderId) return folders;
+  return documents.some(d => d.folderId === folderId)
+    ? folders
+    : folders.filter(f => f.id !== folderId);
+}
+
 /* ---- 使用者偏好（V54）：標點三組＋標籤面板等「跟人走的工作習慣資產」 ----
    與 fontMode（裝置偏好）不同：跨裝置應一致，故獨立鍵存 localStorage 之外，
    登入後另由 cloud.js 同步 user_prefs 表（單列 jsonb，updatedAt 比大小＝最後寫入者贏）。
@@ -187,14 +195,64 @@ export const useStore = create(persist((set) => ({
     if(next.has(folderId)) next.delete(folderId); else next.add(folderId);
     return { collapsedFolders: next };
   }),
-  deleteDocument: (docId) => set(s => ({
-    documents: s.documents.filter(d => d.id !== docId),
-    comments: s.comments.filter(c => c.docId !== docId),   // 鏡像 DB cascade：留言跟文件走
-    currentDocId: s.currentDocId === docId ? null : s.currentDocId
+  deleteDocument: (docId) => set(s => {
+    const gone = s.documents.find(d => d.id === docId);
+    const documents = s.documents.filter(d => d.id !== docId);
+    return {
+      documents,
+      comments: s.comments.filter(c => c.docId !== docId),   // 鏡像 DB cascade：留言跟文件走
+      currentDocId: s.currentDocId === docId ? null : s.currentDocId,
+      folders: pruneEmptiedFolder(s.folders, documents, gone && gone.folderId)
+    };
+  }),
+  setDocFolder: (docId, folderId) => set(s => {
+    const doc = s.documents.find(d => d.id === docId);
+    const next = folderId || null;
+    if(!doc || (doc.folderId || null) === next) return {};
+    const documents = s.documents.map(d =>
+      d.id === docId ? { ...d, folderId: next, updatedAt: Date.now() } : d);
+    return { documents, folders: pruneEmptiedFolder(s.folders, documents, doc.folderId) };
+  }),
+  /* V58 批次搬移：勾選的文件一次移入同一資料夾（''/null＝未分類）；被搬空的來源夾自動消滅 */
+  moveDocsToFolder: (docIds, folderId) => set(s => {
+    const ids = new Set(docIds);
+    const next = folderId || null;
+    const srcFolders = new Set();
+    let changed = false;
+    const documents = s.documents.map(d => {
+      if(!ids.has(d.id) || (d.folderId || null) === next) return d;
+      if(d.folderId) srcFolders.add(d.folderId);
+      changed = true;
+      return { ...d, folderId: next, updatedAt: Date.now() };
+    });
+    if(!changed) return {};
+    let folders = s.folders;
+    srcFolders.forEach(fid => { folders = pruneEmptiedFolder(folders, documents, fid); });
+    return { documents, folders };
+  }),
+  /* V58 批次刪除：勾選的文件刪除（留言鏡像 cascade）、勾選的資料夾刪除（夾內未勾選文件回未分類）；
+     未勾選但被刪文件清空的資料夾照 V57 規則自動消滅 */
+  batchDelete: (docIds, folderIds) => set(s => {
+    const dIds = new Set(docIds), fIds = new Set(folderIds);
+    const touched = new Set();
+    s.documents.forEach(d => { if(dIds.has(d.id) && d.folderId) touched.add(d.folderId); });
+    const documents = s.documents
+      .filter(d => !dIds.has(d.id))
+      .map(d => d.folderId && fIds.has(d.folderId) ? { ...d, folderId: null } : d);
+    let folders = s.folders.filter(f => !fIds.has(f.id));
+    touched.forEach(fid => { if(!fIds.has(fid)) folders = pruneEmptiedFolder(folders, documents, fid); });
+    return {
+      documents, folders,
+      comments: s.comments.filter(c => !dIds.has(c.docId)),
+      currentDocId: dIds.has(s.currentDocId) ? null : s.currentDocId
+    };
+  }),
+  renameFolder: (folderId, name) => set(s => ({
+    folders: s.folders.map(f => f.id === folderId ? { ...f, name } : f)
   })),
-  setDocFolder: (docId, folderId) => set(s => ({
+  renameDocument: (docId, name) => set(s => ({
     documents: s.documents.map(d =>
-      d.id === docId ? { ...d, folderId: folderId || null, updatedAt: Date.now() } : d)
+      d.id === docId ? { ...d, name, updatedAt: Date.now() } : d)
   })),
 
   addTerm: (term) => set(s => ({ termBase: [term, ...s.termBase] })),

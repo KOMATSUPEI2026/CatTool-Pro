@@ -64,7 +64,7 @@ export function parseTmxString(text) {
   const header = byTag(doc, 'header')[0];
   const headerSrc = header ? header.getAttribute('srclang') : '';
   const rows = [];
-  let skippedLang = 0;
+  let skippedLang = 0, skippedEmpty = 0;
   byTag(doc, 'tu').forEach(tu => {
     const sl = normalizeLang(tu.getAttribute('srclang') || headerSrc);
     const tuvs = byTag(tu, 'tuv').map(tuv => ({
@@ -73,14 +73,14 @@ export function parseTmxString(text) {
     }));
     if (!sl) { skippedLang += Math.max(tuvs.length - 1, 1); return; }
     const srcTuv = tuvs.find(v => v.lang === sl);
-    if (!srcTuv || !srcTuv.text) return;   // 缺原文＝無效列（非語系問題，不計 skippedLang）
+    if (!srcTuv || !srcTuv.text) { skippedEmpty++; return; }   // 缺原文＝無效列（非語系問題，計入空原文略過）
     tuvs.forEach(v => {
       if (v === srcTuv) return;
       if (!v.lang) { skippedLang++; return; }
       rows.push({ ja: srcTuv.text, zh: v.text, source: '', srcLang: sl, tgtLang: v.lang });
     });
   });
-  return { rows, skippedLang };
+  return { rows, skippedLang, skippedEmpty };
 }
 
 /* ---------- XLIFF 1.2/2.0 → 入稿暫存 ----------
@@ -198,6 +198,7 @@ export async function parseDocxFile(file) {
 export function parseTermsWorkbook(wb, XLSX) {
   const rows = [];
   const skippedSheets = [];
+  let skippedEmpty = 0;
   wb.SheetNames.forEach(sn => {
     const m = String(sn).split('→');
     const sl = m.length === 2 ? normalizeLang(m[0]) : null;
@@ -207,11 +208,11 @@ export function parseTermsWorkbook(wb, XLSX) {
     for (let r = 1; r < grid.length; r++) {
       const cell = (i) => grid[r][i] === null || grid[r][i] === undefined ? '' : String(grid[r][i]).trim();
       const ja = cell(0);
-      if (!ja) continue;
+      if (!ja) { if (cell(1)) skippedEmpty++; continue; }   // 空原文列略過；有譯無原才計數（全空＝模板空列不計）
       rows.push({ ja, zh: cell(1), tag: cell(2), note: cell(3), source: cell(4), srcLang: sl, tgtLang: tl });
     }
   });
-  return { rows, skippedSheets };
+  return { rows, skippedSheets, skippedEmpty };
 }
 
 /* ---------- TM xlsx → TM 列 ----------
@@ -219,7 +220,7 @@ export function parseTermsWorkbook(wb, XLSX) {
   （來源可缺，其餘四欄必備）；語系欄逐列正規化，不支援＝該筆跳過計數 */
 export function parseTmWorkbook(wb, XLSX) {
   const rows = [];
-  let skippedLang = 0;
+  let skippedLang = 0, skippedEmpty = 0;
   let headerOk = false;
   wb.SheetNames.forEach(sn => {
     const grid = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: null });
@@ -233,14 +234,14 @@ export function parseTmWorkbook(wb, XLSX) {
     for (let r = 1; r < grid.length; r++) {
       const cell = (i) => i === -1 || grid[r][i] === null || grid[r][i] === undefined ? '' : String(grid[r][i]).trim();
       const ja = cell(jaCol);
-      if (!ja) continue;
+      if (!ja) { if (cell(zhCol)) skippedEmpty++; continue; }   // 空原文列略過；有譯無原才計數（全空＝模板空列不計）
       const sl = normalizeLang(cell(slCol)), tl = normalizeLang(cell(tlCol));
       if (!sl || !tl) { skippedLang++; continue; }
       rows.push({ ja, zh: cell(zhCol), source: cell(srcCol), srcLang: sl, tgtLang: tl });
     }
   });
   if (!headerOk) throw new Error('表頭欄位不符（需含「原文／譯文／來源語系／目標語系」欄）');
-  return { rows, skippedLang };
+  return { rows, skippedLang, skippedEmpty };
 }
 
 /* ---------- JSON → 列（沿用既有相容邏輯：動態鍵、退回舊 ja/zh 鍵） ----------
@@ -249,7 +250,7 @@ export function parseTmWorkbook(wb, XLSX) {
 export function parseJsonRows(data, kind) {
   if (!Array.isArray(data)) throw new Error('檔案格式不正確（需為陣列）');
   const rows = [];
-  let skippedLang = 0;
+  let skippedLang = 0, skippedEmpty = 0;
   data.forEach(d => {
     if (!d || typeof d !== 'object') return;
     const sl = d.srcLang === undefined || d.srcLang === null || d.srcLang === '' ? 'ja' : normalizeLang(d.srcLang);
@@ -257,11 +258,11 @@ export function parseJsonRows(data, kind) {
     if (!sl || !tl) { skippedLang++; return; }
     const src = d[sl] !== undefined ? d[sl] : d.ja;
     const tgt = d[tl] !== undefined ? d[tl] : d.zh;
-    if (!src) return;
+    if (!src) { skippedEmpty++; return; }   // 空原文列略過並計數（V66 健檢低-5：摘要加總才對得上檔案列數）
     const base = { ja: String(src), zh: tgt ? String(tgt) : '', source: d.source || '', srcLang: sl, tgtLang: tl };
     rows.push(kind === 'terms' ? { ...base, note: d.note || '', tag: d.tag || '' } : base);
   });
-  return { rows, skippedLang };
+  return { rows, skippedLang, skippedEmpty };
 }
 
 /* ---------- 高階入口：File → 解析結果（依副檔名分流） ----------
@@ -273,28 +274,28 @@ async function readWorkbook(file) {
 export async function parseTermsFile(file) {
   if (/\.xlsx$/i.test(file.name)) {
     const { XLSX, wb } = await readWorkbook(file);
-    const { rows, skippedSheets } = parseTermsWorkbook(wb, XLSX);
-    return { rows, skippedLang: 0, skippedSheets };
+    const { rows, skippedSheets, skippedEmpty } = parseTermsWorkbook(wb, XLSX);
+    return { rows, skippedLang: 0, skippedSheets, skippedEmpty };
   }
   if (/\.json$/i.test(file.name)) {
-    const { rows, skippedLang } = parseJsonRows(JSON.parse(await file.text()), 'terms');
-    return { rows, skippedLang, skippedSheets: [] };
+    const { rows, skippedLang, skippedEmpty } = parseJsonRows(JSON.parse(await file.text()), 'terms');
+    return { rows, skippedLang, skippedSheets: [], skippedEmpty };
   }
   throw new Error('不支援的檔案格式（請選 .xlsx 或 .json）');
 }
 export async function parseTmFile(file) {
   if (/\.tmx$/i.test(file.name)) {
-    const { rows, skippedLang } = parseTmxString(await file.text());
-    return { rows, skippedLang, skippedSheets: [] };
+    const { rows, skippedLang, skippedEmpty } = parseTmxString(await file.text());
+    return { rows, skippedLang, skippedSheets: [], skippedEmpty };
   }
   if (/\.xlsx$/i.test(file.name)) {
     const { XLSX, wb } = await readWorkbook(file);
-    const { rows, skippedLang } = parseTmWorkbook(wb, XLSX);
-    return { rows, skippedLang, skippedSheets: [] };
+    const { rows, skippedLang, skippedEmpty } = parseTmWorkbook(wb, XLSX);
+    return { rows, skippedLang, skippedSheets: [], skippedEmpty };
   }
   if (/\.json$/i.test(file.name)) {
-    const { rows, skippedLang } = parseJsonRows(JSON.parse(await file.text()), 'tm');
-    return { rows, skippedLang, skippedSheets: [] };
+    const { rows, skippedLang, skippedEmpty } = parseJsonRows(JSON.parse(await file.text()), 'tm');
+    return { rows, skippedLang, skippedSheets: [], skippedEmpty };
   }
   throw new Error('不支援的檔案格式（請選 .tmx、.xlsx 或 .json）');
 }

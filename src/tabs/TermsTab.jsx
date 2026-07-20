@@ -111,9 +111,9 @@ export default function TermsTab() {
     e.target.value = '';
     if (!file) return;
     try {
-      const { rows, skippedLang, skippedSheets } = await parseTermsFile(file);
+      const { rows, skippedLang, skippedSheets, skippedEmpty } = await parseTermsFile(file);
       const { fresh, dupCount } = dedupeRows(rows, termBase);
-      setImportStaged({ fileName: file.name, fresh, dupCount, skippedLang, skippedSheets });
+      setImportStaged({ fileName: file.name, fresh, dupCount, skippedLang, skippedSheets, skippedEmpty });
     } catch (err) {
       showToast('匯入解析失敗：' + err.message);
     }

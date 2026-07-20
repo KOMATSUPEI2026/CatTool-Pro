@@ -2,9 +2,9 @@ import { pairSummary } from '../importers.js';
 
 /* V60 匯入確認 Modal（術語庫/翻譯記憶共用）：解析後先預覽摘要、按確認才入庫。
    確認型 Modal（取消/確定雙鈕）不掛右上 X（V52 Modal 關閉規範）。
-   staged = { fileName, fresh:[...], dupCount, skippedLang, skippedSheets:[] } */
+   staged = { fileName, fresh:[...], dupCount, skippedLang, skippedSheets:[], skippedEmpty } */
 export default function ImportConfirmModal({ title, staged, onConfirm, onClose }) {
-  const { fileName, fresh, dupCount, skippedLang, skippedSheets } = staged;
+  const { fileName, fresh, dupCount, skippedLang, skippedSheets, skippedEmpty } = staged;
   const pairs = pairSummary(fresh);
   return (
     <div className="modal-overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -24,6 +24,7 @@ export default function ImportConfirmModal({ title, staged, onConfirm, onClose }
           )}
           {dupCount > 0 && <p className="import-skip">重複跳過 {dupCount} 筆（庫內已有相同原文＋譯文）</p>}
           {skippedLang > 0 && <p className="import-skip">跳過 {skippedLang} 筆（不支援的語系代碼）</p>}
+          {skippedEmpty > 0 && <p className="import-skip">跳過 {skippedEmpty} 筆（原文空白）</p>}
           {skippedSheets.length > 0 &&
             <p className="import-skip">略過工作表：{skippedSheets.join('、')}（分頁名非語言對格式）</p>}
         </div>

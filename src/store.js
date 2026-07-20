@@ -217,10 +217,8 @@ export const useStore = create(persist((set) => ({
   showToast: (msg) => set(s => ({ toast: { msg, seq: (s.toast?.seq || 0) + 1 } })),
 
   addFolder: (name) => set(s => ({ folders: [...s.folders, { id: cid(), name }] })),
-  deleteFolder: (folderId) => set(s => ({
-    folders: s.folders.filter(f => f.id !== folderId),
-    documents: s.documents.map(d => d.folderId === folderId ? { ...d, folderId: null } : d)
-  })),
+  // 刪資料夾一律走 batchDelete（V58 起專案區工具列批次刪除）＋自動消滅空資料夾（pruneEmptiedFolder），
+  // 故不再保留獨立的 deleteFolder action（V66 移除死碼）
   toggleFolder: (folderId) => set(s => {
     const next = new Set(s.collapsedFolders);
     if(next.has(folderId)) next.delete(folderId); else next.add(folderId);

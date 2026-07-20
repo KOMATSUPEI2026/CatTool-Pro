@@ -308,6 +308,9 @@ export async function saveAllToCloud(opts = {}){
    文件或資料夾還沒上過雲端（FK 23503）表示單列補不齊，改觸發一次全量自動儲存 */
 export async function saveSegmentNow(segId){
   const s = st();
+  // 只讀 cloudBusy 不設鎖（V66 健檢低-7：刻意）：逐句即存是單列冪等 upsert，
+  // 全量存進行中就讓給全量（下方 return），但自身不佔 cloudBusy——否則連續 Tab 確認會被序列化成
+  // 「第二次直接跳過」，反而讓那句停在未即存；不設鎖時兩句各自 upsert 不同列、無實質衝突
   if(!s.auth.token || s.cloudBusy) return;
   const doc = s.documents.find(d => d.segments.some(x => x.id === segId));
   if(!doc) return;
@@ -339,6 +342,9 @@ function patchSnapshotAfterSegSave(docId, segId, tmId){
     sd.updatedAt = doc.updatedAt;
     const segIdx = doc.segments.findIndex(x => x.id === segId);
     const i = sd.segments.findIndex(x => x.id === segId);
+    // 快照已有這句＝更新；快照沒有且落在尾端＝新增句段的「附加」（不動其他句段的位置）→ 可安心補進快照。
+    // 刻意不處理「中間插入」（segIdx 落在中段）：即存只 upsert 這一列、後段句段的雲端 position 沒跟著位移，
+    // 補進快照會誤判已同步；維持未同步交給全量存重寫全部 position 才是正解（V66 健檢低-2：非缺陷，勿改成 splice）
     if(i >= 0) sd.segments[i] = doc.segments[segIdx];
     else if(segIdx === sd.segments.length) sd.segments.push(doc.segments[segIdx]);
     if(tmId){
@@ -428,8 +434,17 @@ export function applyRemoteChange(table, eventType, row){
       patch.currentDocId = null;
       patch.lastFocusedSegId = null;
     }
-    if(s.srUndoSnapshot && (table === 'documents' || table === 'segments'))
-      patch.srUndoSnapshot = null;   // 取代復原快照對的是變更前句段，遠端一動一律作廢
+    // 取代復原快照對的是變更前句段，遠端變更使其基準過期時作廢（V66 健檢低-1 收斂範圍）：
+    // 只在「快照本檔被整份刪除」或「快照涵蓋的某個句段被遠端動到」時作廢——
+    // 別檔或不相干句段的遠端變更（含自己全量存刪列無法過濾的 DELETE 回聲）不再誤炸復原鈕。
+    // DELETE 回聲的列本機已不存在＝applyOpToDataset 回 null（patch 為 falsy 不進此段），天然不觸發
+    if(s.srUndoSnapshot){
+      const snap = s.srUndoSnapshot;
+      const touchesUndo =
+        (table === 'documents' && eventType === 'DELETE' && row.id === snap.docId) ||
+        (table === 'segments' && snap.items.some(it => it.segId === row.id));
+      if(touchesUndo) patch.srUndoSnapshot = null;
+    }
     useStore.setState(patch);
   }
   // 快照同樣套用（即使 store 無變化也套：快照可能落後一步）

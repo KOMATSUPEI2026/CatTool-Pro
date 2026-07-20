@@ -109,6 +109,7 @@ export default function IngestTab() {
       const wb = XLSX.read(buf);
       const sheets = [];
       const skipped = [];
+      let skippedEmpty = 0;                         // 原文空白列（有譯無原）略過計數（V66 健檢低-6）
       const mismatched = [];                       // 表頭缺來源或目標欄的分頁
       const detectedCodes = new Set();             // 表頭中偵測到的已知語系代碼（供報錯提示）
       const langCodesLower = Object.keys(LANG_NAMES).map(c => c.toLowerCase());
@@ -131,7 +132,8 @@ export default function IngestTab() {
         for (let r = 1; r < grid.length; r++) {
           const ja = grid[r][srcCol] === null ? '' : String(grid[r][srcCol]).replace(/\r\n?/g, '\n').trim();
           const zh = grid[r][tgtCol] !== null ? String(grid[r][tgtCol]).replace(/\r\n?/g, '\n').trim() : '';
-          if (!ja && !zh) continue;   // 空白模板列略過
+          // 原文空白即略過：全空＝模板空列（不計），有譯無原＝計入略過（V66 健檢低-6，避免建出空原文句段汙染 TM）
+          if (!ja) { if (zh) skippedEmpty++; continue; }
           const srcNo = (noCol !== -1 && grid[r][noCol] !== null) ? String(grid[r][noCol]).trim() : null;
           rows.push({ ja, zh, srcNo });
         }
@@ -150,7 +152,7 @@ export default function IngestTab() {
         return;
       }
       const skippedAll = [...skipped, ...mismatched.map(sn => `${sn}（表頭欄位不符）`)];
-      setStaged({ fileName: file.name, sheets, src, tgt, skipped: skippedAll });
+      setStaged({ fileName: file.name, sheets, src, tgt, skipped: skippedAll, skippedEmpty });
     }).catch(() => {
       setStaged(null);
       setDropMsg({ title: '解析失敗', detail: '檔案可能損壞，請重新拖入 .xlsx' });
@@ -248,6 +250,8 @@ export default function IngestTab() {
               <div className="staged-detail">{staged.sheets.map(s => `${s.name}（${s.rows.length} 段）`).join('、')}</div>
               {staged.skipped.length > 0 &&
                 <div className="staged-detail">略過分頁：{staged.skipped.join('、')}</div>}
+              {staged.skippedEmpty > 0 &&
+                <div className="staged-detail">略過 {staged.skippedEmpty} 列（原文空白）</div>}
               <div className="staged-detail">重新拖入或點擊可更換檔案</div>
             </>
           ) : (

@@ -56,9 +56,9 @@ export default function TmTab() {
     e.target.value = '';
     if (!file) return;
     try {
-      const { rows, skippedLang, skippedSheets } = await parseTmFile(file);
+      const { rows, skippedLang, skippedSheets, skippedEmpty } = await parseTmFile(file);
       const { fresh, dupCount } = dedupeRows(rows, tmSegments);
-      setImportStaged({ fileName: file.name, fresh, dupCount, skippedLang, skippedSheets });
+      setImportStaged({ fileName: file.name, fresh, dupCount, skippedLang, skippedSheets, skippedEmpty });
     } catch (err) {
       showToast('匯入解析失敗：' + err.message);
     }

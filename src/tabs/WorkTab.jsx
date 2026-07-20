@@ -449,7 +449,7 @@ export default function WorkTab() {
       {modal?.type === 'srConfirm' &&
         <ConfirmModal title="取代譯文" cancelLabel="取消取代" okLabel="確定取代"
                       onCancel={() => setModal(null)}
-                      onOk={() => { executeSearchReplace(kw, srReplace); setModal(null); }}>
+                      onOk={() => { executeSearchReplace(kw, srReplace); setSrQuery(''); setModal(null); }}>
           有 {modal.n} 處會被取代，句段會退回未確認狀態。
         </ConfirmModal>}
 

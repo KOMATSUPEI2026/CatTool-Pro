@@ -26,6 +26,7 @@ function pickerTypes(filename) {
   if (filename.endsWith('.xlsx')) return [{ description: 'Excel 活頁簿', accept: { [XLSX_MIME]: ['.xlsx'] } }];
   if (filename.endsWith('.docx')) return [{ description: 'Word 文件', accept: { [DOCX_MIME]: ['.docx'] } }];
   if (filename.endsWith('.json')) return [{ description: 'JSON', accept: { 'application/json': ['.json'] } }];
+  if (filename.endsWith('.csv')) return [{ description: 'CSV 詞彙表', accept: { 'text/csv': ['.csv'] } }];
   if (filename.endsWith('.tmx')) return [{ description: 'TMX 翻譯記憶', accept: { 'application/xml': ['.tmx'] } }];
   if (filename.endsWith('.xlf')) return [{ description: 'XLIFF 雙語工作檔', accept: { 'application/xml': ['.xlf'] } }];
   return undefined;
@@ -73,6 +74,8 @@ async function saveMany(specs) {
 
 const xmlBlob = (text) => new Blob([text], { type: 'application/xml' });
 const jsonBlob = (data) => new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+/* CSV 前置 UTF-8 BOM：Excel 直接雙擊開檔才不會把 UTF-8 誤判成系統編碼變亂碼 */
+const csvBlob = (text) => new Blob(['\uFEFF' + text], { type: 'text/csv' });
 
 /* ---------- xlsx ---------- */
 /* 分頁名限制：不可含 [ ] : * ? / \、上限 31 字 */
@@ -346,6 +349,26 @@ export function termSheets(termBase) {
     ]
   }));
 }
+/* CSV（V63 微調）：開源 CAT 對接用（OmegaT 詞彙表直接吃）——依語言對分檔（嚴格語系隔離），
+   三欄「原文,譯文,備註」無表頭（OmegaT 會把表頭當詞條收；memoQ/Trados 走 xlsx 路線）。
+   跳脫＝標準 CSV（含逗號/引號/換行才包引號、引號雙寫）、列尾 CRLF；BOM 由 csvBlob 統一前置 */
+function csvField(s) {
+  const v = String(s ?? '');
+  return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+}
+export function termCsvFiles(termBase) {
+  const byPair = new Map();
+  termBase.forEach(t => {
+    const sl = t.srcLang || 'ja', tl = t.tgtLang || 'zh-TW';
+    const key = `${sl}→${tl}`;
+    if (!byPair.has(key)) byPair.set(key, []);
+    byPair.get(key).push(t);
+  });
+  return [...byPair.entries()].map(([key, rows]) => ({
+    filename: `terms_${key}.csv`,
+    text: rows.map(t => [t.ja, t.zh || '', t.note || ''].map(csvField).join(',')).join('\r\n') + '\r\n'
+  }));
+}
 /* JSON 列（既有格式：動態鍵名＋note/tag/source） */
 export function termRowsJSON(termBase) {
   return termBase.map(t => {
@@ -354,10 +377,13 @@ export function termRowsJSON(termBase) {
   });
 }
 
-/* 依勾選格式一次匯出（V59 微調2）。fmts ⊆ ['xlsx','json']；回傳實際存檔數（0＝取消） */
+/* 依勾選格式一次匯出（V59 微調2、V63 微調加 csv）。fmts ⊆ ['xlsx','csv','json']；
+   回傳實際存檔數（0＝取消） */
 export async function exportTerms(termBase, fmts) {
   const specs = [];
   if (fmts.includes('xlsx')) specs.push({ filename: 'termbase.xlsx', makeBlob: () => xlsxBlob(termSheets(termBase)) });
+  if (fmts.includes('csv')) termCsvFiles(termBase).forEach(f =>
+    specs.push({ filename: f.filename, makeBlob: async () => csvBlob(f.text) }));
   if (fmts.includes('json')) specs.push({ filename: 'termbase.json', makeBlob: async () => jsonBlob(termRowsJSON(termBase)) });
   return specs.length ? saveMany(specs) : 0;
 }

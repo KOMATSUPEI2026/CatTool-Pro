@@ -61,6 +61,7 @@ const defaultPrefs = () => ({
   pvBlur: 15,           // 整頁預覽毛玻璃模糊度 px（V63）：0–30；15＝V53 定案原值
   ytUrl: '',            // 白噪音 YouTube 連結（V63）：header 音樂鈕播放來源
   musicVolume: 100,     // 白噪音音量 %（V63 微調）：0–100 步進 5；100＝YouTube 預設音量
+  musicStartPct: 0,     // 白噪音播放起始位置 %（V63 微調）：0–100 整數，起始秒數＝總長×比例、只在首播套用；0＝從頭
   updatedAt: 0
 });
 export function normalizePrefs(raw){
@@ -88,6 +89,9 @@ export function normalizePrefs(raw){
     musicVolume: (typeof raw.musicVolume === 'number' && raw.musicVolume >= 0 && raw.musicVolume <= 100)
       ? Math.round(raw.musicVolume / 5) * 5
       : d.musicVolume,
+    musicStartPct: (typeof raw.musicStartPct === 'number' && raw.musicStartPct >= 0 && raw.musicStartPct <= 100)
+      ? Math.round(raw.musicStartPct)
+      : d.musicStartPct,
     updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : 0
   };
 }
@@ -147,6 +151,8 @@ export const useStore = create(persist((set) => ({
   cloudBusy: false,         // 儲存進行中（鎖「儲存至雲端」按鈕＋重入守門）
   cloudFlashSeq: 0,         // 全量儲存成功遞增：雲端鈕短暫轉實心雲 icon（V51）
   musicPlaying: false,      // 白噪音播放中（V63）：header 音樂鈕開關；純畫面暫態不落地、不進 prefs
+  musicDuration: null,      // 白噪音影片總長秒數（V63 微調）：null＝未知（未播放/尚未就緒）、0＝直播無總長；
+                            // App 端 onStateChange PLAYING 時回填，時間軸滑桿據此換算顯示；純畫面暫態不落地
   welcomeVisible: true,     // 歡迎面板（登入成功或選訪客後收起）
   confirmModal: null,       // 全域確認 Modal { title, text, cancelLabel, okLabel, onOk, wide }；雲端層等元件外程式碼用
 
@@ -166,9 +172,10 @@ export const useStore = create(persist((set) => ({
   }),
   setIngestLang: (which, value) => set(which === 'src' ? { ingestSrcLang: value } : { ingestTgtLang: value }),
   setMusicPlaying: (on) => set({ musicPlaying: !!on }),
+  setMusicDuration: (n) => set({ musicDuration: n }),
   // 白噪音開關（V63）：header 音樂鈕與個人設定區播放鈕共用；連結無效以 Toast 引導
   toggleMusic: () => set(s => {
-    if (s.musicPlaying) return { musicPlaying: false };
+    if (s.musicPlaying) return { musicPlaying: false, musicDuration: null };
     if (!parseYouTubeId(s.prefs.ytUrl)) {
       return { toast: { msg: '請先在「個人設定區」輸入有效的 YouTube 連結', seq: (s.toast?.seq || 0) + 1 } };
     }

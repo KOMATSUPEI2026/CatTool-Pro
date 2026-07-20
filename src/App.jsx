@@ -68,6 +68,7 @@ export default function App() {
   const toggleMusic  = useStore(s => s.toggleMusic);
   const ytUrl        = useStore(s => s.prefs.ytUrl);
   const musicVolume  = useStore(s => s.prefs.musicVolume);
+  const musicStartPct = useStore(s => s.prefs.musicStartPct);
   const ytId = parseYouTubeId(ytUrl);
 
   const [darkMode, setDarkMode] = useState(false);
@@ -115,13 +116,32 @@ export default function App() {
      （iframe 本體由 React 掛卸，destroy 只拆事件橋——try/catch 防 iframe 已先卸載）。
      拖桿即調即生效：播放中 musicVolume 一變就 player.setVolume */
   const ytPlayerRef = useRef(null);
+  const ytStartAppliedRef = useRef(false);   // 本次播放是否已套用時間軸起始位置（每次開播重置）
   useEffect(() => {
     if (!musicPlaying || !ytId) return;
     let cancelled = false;
+    ytStartAppliedRef.current = false;
     loadYtApi().then(YT => {
       if (cancelled || !YT || !document.getElementById('yt-noise')) return;
       ytPlayerRef.current = new YT.Player('yt-noise', {
-        events: { onReady: e => e.target.setVolume(useStore.getState().prefs.musicVolume) }
+        events: {
+          onReady: e => e.target.setVolume(useStore.getState().prefs.musicVolume),
+          /* 時間軸（V63 微調，實測二修定案）：滑桿＝**本次播放的起始位置**，只在首播套用一次；
+             循環一律交給原生 loop=1&playlist 回到 0 播整首（「每輪都從起點」語意經實測否決——
+             滑桿在尾端時會變成只循環結尾幾秒，使用者期望播完跳回 0）。ENDED 不接手
+             （自行 seek+play 與原生循環互搶會卡結尾）。起始位置夾「總長−5 秒」防一開播就結束 */
+          onStateChange: e => {
+            if (e.data !== 1) return;   // 只管 PLAYING
+            const p = e.target;
+            const st = useStore.getState();
+            const dur = p.getDuration() || 0;
+            if (st.musicDuration !== dur) st.setMusicDuration(dur);
+            if (dur <= 0 || ytStartAppliedRef.current) return;
+            ytStartAppliedRef.current = true;   // 首播套用一次；之後每輪循環從 0 播整首
+            const startSec = Math.min(dur * st.prefs.musicStartPct / 100, Math.max(0, dur - 5));
+            if (startSec > 1) p.seekTo(startSec, true);
+          }
+        }
       });
     });
     return () => {
@@ -138,6 +158,15 @@ export default function App() {
       try { p.setVolume(musicVolume); } catch { /* 播放器未就緒：onReady 會套 */ }
     }
   }, [musicVolume, musicPlaying]);
+  /* 時間軸拖桿即時 seek（即時回饋聽得到起點）；總長未知（未就緒/直播）不動作，
+     首播的起點套用交給 onStateChange PLAYING。上限同夾「總長−5 秒」 */
+  useEffect(() => {
+    const p = ytPlayerRef.current;
+    const dur = useStore.getState().musicDuration;
+    if (musicPlaying && p && typeof p.seekTo === 'function' && dur > 0) {
+      try { p.seekTo(Math.min(dur * musicStartPct / 100, Math.max(0, dur - 5)), true); } catch { /* 未就緒 */ }
+    }
+  }, [musicStartPct, musicPlaying]);
 
   return (
     <div className="wrap">

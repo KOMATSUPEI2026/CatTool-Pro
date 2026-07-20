@@ -1292,7 +1292,10 @@ ul, ol { list-style: none; padding: 0; }
     background:var(--paper);color:var(--ink);font-size:var(--fs-sm);
   }
   .ps-music-row input:focus{outline:none;border-color:var(--seal);}
-  .ps-vol-row{margin-top:12px;}   /* 音量滑桿列（V63 微調）：沿用 .ps-pv-hrow 橫排版型 */
+  .ps-vol-row{margin-top:12px;}   /* 音量/時間軸滑桿列（V63 微調）：沿用 .ps-pv-hrow 橫排版型 */
+  .ps-vol-row .ps-slider-label{min-width:44px;text-align:left;}    /* 「音量」「時間軸」字數不同：定寬讓兩桿對齊 */
+  .ps-vol-row .ps-slider-value{min-width:44px;text-align:right;white-space:nowrap;}
+  .ps-slider:disabled{opacity:.3;cursor:default;}   /* 時間軸直播停用態 */
 
   /* header 音樂鈕播放中：朱紅提示（icon 鈕家族的 active 變體） */
   .icon-btn.music-on{color:var(--vermilion);border-color:var(--vermilion);}

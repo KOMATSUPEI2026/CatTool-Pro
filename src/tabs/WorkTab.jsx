@@ -231,6 +231,23 @@ export default function WorkTab() {
     };
   }, []);
 
+  /* 反白原文中 → Ctrl(Mac)/Alt(Win)+I 開「新增術語」Modal（V63 微調）：與浮動鈕同一入口。
+     只在「有反白（selBtn）且無其他 Modal」時動作；preventDefault 攔掉瀏覽器預設。
+     比照 TermTip 不檢查 isComposing（此組合不參與注音組字） */
+  useEffect(() => {
+    if (!selBtn) return;
+    const onKeyDown = (e) => {
+      if (!e.altKey && !e.ctrlKey) return;
+      if (e.code !== 'KeyI') return;
+      if (modal) return;
+      e.preventDefault();
+      setModal({ type: 'term', term: null, prefillJa: selBtn.text });
+      setSelBtn(null);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [selBtn, modal]);
+
   /* 視窗縮放改變欄寬 → 全部譯文框補量一次（150ms debounce，同 vanilla） */
   useEffect(() => {
     let timer = null;

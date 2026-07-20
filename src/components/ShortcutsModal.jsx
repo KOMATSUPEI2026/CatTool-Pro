@@ -3,6 +3,7 @@ const ROWS = [
   { scene: '全站', keys: ['Mac Cmd+S', 'Win Ctrl+S'],                  desc: '儲存至雲端' },
   { scene: '譯文欄', keys: ['Tab'],                                    desc: '確認句段並存入翻譯記憶' },
   { scene: '術語快速帶入',     keys: ['Mac Ctrl+1~9', 'Win Alt+1~9'],            desc: '' },
+  { scene: '反白新增術語',     keys: ['Mac Ctrl+I', 'Win Alt+I'],                desc: '' },
   { scene: '快捷標點列',         keys: ['Mac Ctrl+Shift+1~0', 'Win Alt+Shift+1~0'], desc: '' },
   { scene: '記憶側欄卡片',       keys: ['Tab'],                                    desc: '更新該筆翻譯記憶' },
   { scene: '',       keys: ['Enter'],                                  desc: '套用譯文至目前句段' },

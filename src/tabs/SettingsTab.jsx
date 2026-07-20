@@ -116,13 +116,27 @@ function PunctSection() {
   );
 }
 
+/* mm:ss（滿一小時 h:mm:ss）；時間軸滑桿播放中顯示換算後的實際起點時間 */
+function fmtTime(sec) {
+  const s = Math.floor(sec);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = String(s % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}
+
 /* ④ 白噪音音樂：YouTube 連結存 prefs（失焦/Enter 送出），播放鈕與 header 音樂鈕同一開關 */
 function MusicSection() {
   const ytUrl = useStore(s => s.prefs.ytUrl);
   const musicVolume = useStore(s => s.prefs.musicVolume);
+  const musicStartPct = useStore(s => s.prefs.musicStartPct);
   const patchPrefs = useStore(s => s.patchPrefs);
   const musicPlaying = useStore(s => s.musicPlaying);
+  const musicDuration = useStore(s => s.musicDuration);
   const toggleMusic = useStore(s => s.toggleMusic);
+  // 時間軸顯示三態：播放中且知總長＝實際時間；播放中總長 0＝直播（滑桿停用）；其餘＝百分比
+  const isLive = musicPlaying && musicDuration === 0;
+  const timeLabel = (musicPlaying && musicDuration > 0)
+    ? fmtTime(musicDuration * musicStartPct / 100)
+    : (isLive ? '直播' : musicStartPct + '%');
   const [val, setVal] = useState(ytUrl);
   const inputRef = useRef(null);
   // 雲端對時後 prefs.ytUrl 可能變（另一裝置寫入）：輸入框非聚焦中才跟上，避免蓋掉編輯到一半的內容
@@ -133,7 +147,7 @@ function MusicSection() {
   return (
     <section className="ps-section" id="ps-music-section">
       <h3>白噪音音樂</h3>
-      <p className="ps-hint">貼上 YouTube 連結，按「音樂播放」循環播放當作工作白噪音；頂列音樂鈕可隨時播放／停止，音量滑桿播放中即調即生效。</p>
+      <p className="ps-hint">貼上 YouTube 連結，按「音樂播放」循環播放當作工作白噪音；頂列音樂鈕可隨時播放／停止。音量與時間軸滑桿播放中即調即生效，時間軸＝這次播放的起始位置（播完自動從頭循環）。</p>
       <div className="ps-music-row">
         <input type="text" id="ps-yt-url" ref={inputRef} placeholder="https://www.youtube.com/watch?v=…"
                value={val}
@@ -146,13 +160,23 @@ function MusicSection() {
           {musicPlaying ? ' 停止播放' : ' 音樂播放'}
         </button>
       </div>
-      {/* 音量（V63 微調）：存 prefs.musicVolume 跨裝置同步；播放中 App 端 effect 即時 postMessage */}
+      {/* 音量（V63 微調）：存 prefs.musicVolume 跨裝置同步；播放中 App 端 effect 即時 setVolume */}
       <div className="ps-pv-hrow ps-vol-row">
         <span className="ps-slider-label">音量</span>
         <input type="range" className="ps-slider" id="ps-vol-slider"
                min="0" max="100" step="5" value={musicVolume}
                onChange={e => patchPrefs({ musicVolume: Number(e.target.value) })} />
         <span className="ps-slider-value" id="ps-vol-value">{musicVolume}%</span>
+      </div>
+      {/* 時間軸（V63 微調）：本次播放起始位置＝總長×百分比（總長要播放後才知道，故存百分比；
+          循環一律回 0 播整首）；播放中顯示實際時間＋拖桿即時 seek（App 端 effect）、
+          未播放顯示 %、直播停用 */}
+      <div className="ps-pv-hrow ps-vol-row">
+        <span className="ps-slider-label">時間軸</span>
+        <input type="range" className="ps-slider" id="ps-time-slider"
+               min="0" max="100" step="1" value={musicStartPct} disabled={isLive}
+               onChange={e => patchPrefs({ musicStartPct: Number(e.target.value) })} />
+        <span className="ps-slider-value" id="ps-time-value">{timeLabel}</span>
       </div>
     </section>
   );

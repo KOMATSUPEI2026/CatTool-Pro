@@ -82,7 +82,8 @@ export default function TermsTab() {
     setTimeout(() => document.querySelector('#term-tbody input[data-field="ja"]')?.focus());
   };
 
-  /* V59：匯出 Modal 勾選格式（xlsx＝依語言對分工作表／JSON＝既有格式）→ 匯出鈕一次執行；
+  /* V59：匯出 Modal 勾選格式（xlsx＝依語言對分工作表／CSV＝依語言對分檔三欄無表頭（V63 微調，
+     OmegaT 等開源 CAT 對接）／JSON＝既有格式）→ 匯出鈕一次執行；
      可指定儲存路徑（picker 取消回傳 0 不跳 Toast） */
   const openExport = () => {
     if (termBase.length === 0) { showToast('尚無詞彙可匯出'); return; }
@@ -93,6 +94,7 @@ export default function TermsTab() {
     row: true,   // V59 微調：單群組按鈕水平並排
     options: [
       { id: 'terms-export-xlsx', key: 'xlsx', label: 'xlsx' },
+      { id: 'terms-export-csv', key: 'csv', label: 'CSV' },
       { id: 'terms-export-json', key: 'json', label: 'JSON' }
     ]
   }];

@@ -450,7 +450,8 @@ export default function WorkTab() {
           有 {modal.n} 處會被取代，句段會退回未確認狀態。
         </ConfirmModal>}
 
-      {modal?.type === 'pagePreview' && <PagePreview doc={doc} onClose={() => setModal(null)} />}
+      {/* 以下皆需 doc：開啟中的文件被其他視窗刪除（Realtime）時 doc 轉 null，Modal 直接收起不再渲染（V64） */}
+      {modal?.type === 'pagePreview' && doc && <PagePreview doc={doc} onClose={() => setModal(null)} />}
 
       {modal?.type === 'tmSense' && <TmSenseModal onClose={() => setModal(null)} />}
 
@@ -459,11 +460,11 @@ export default function WorkTab() {
                      submitId="work-export-submit" submitLabel="匯出文件"
                      onSubmit={onPickExport} onClose={() => setModal(null)} />}
 
-      {modal?.type === 'segEdit'   && <SegEditModal   doc={doc} onClose={() => setModal(null)} />}
-      {modal?.type === 'segOrder'  && <SegOrderModal  doc={doc} onClose={() => setModal(null)} />}
-      {modal?.type === 'segMerge'  && <SegMergeModal  doc={doc} onClose={() => setModal(null)} />}
-      {modal?.type === 'segAdd'    && <SegAddModal    doc={doc} onClose={() => setModal(null)} />}
-      {modal?.type === 'segDelete' && <SegDeleteModal doc={doc} onClose={() => setModal(null)} />}
+      {modal?.type === 'segEdit'   && doc && <SegEditModal   doc={doc} onClose={() => setModal(null)} />}
+      {modal?.type === 'segOrder'  && doc && <SegOrderModal  doc={doc} onClose={() => setModal(null)} />}
+      {modal?.type === 'segMerge'  && doc && <SegMergeModal  doc={doc} onClose={() => setModal(null)} />}
+      {modal?.type === 'segAdd'    && doc && <SegAddModal    doc={doc} onClose={() => setModal(null)} />}
+      {modal?.type === 'segDelete' && doc && <SegDeleteModal doc={doc} onClose={() => setModal(null)} />}
     </>
   );
 }

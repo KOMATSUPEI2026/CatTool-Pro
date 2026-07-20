@@ -154,7 +154,7 @@ export const useStore = create(persist((set) => ({
   musicDuration: null,      // 白噪音影片總長秒數（V63 微調）：null＝未知（未播放/尚未就緒）、0＝直播無總長；
                             // App 端 onStateChange PLAYING 時回填，時間軸滑桿據此換算顯示；純畫面暫態不落地
   welcomeVisible: true,     // 歡迎面板（登入成功或選訪客後收起）
-  confirmModal: null,       // 全域確認 Modal { title, text, cancelLabel, okLabel, onOk, wide }；雲端層等元件外程式碼用
+  confirmModal: null,       // 全域確認 Modal { title, text, cancelLabel, okLabel, onOk, onCancel, wide }；雲端層等元件外程式碼用
 
   activateTab: (key) => set({ currentTab: key, termTip: null }),
   setWorkMode: (mode) => set({ workMode: mode, termTip: null }),
@@ -457,19 +457,32 @@ export const useStore = create(persist((set) => ({
     };
   }),
 
-  // 排序：不改任何句段內容與狀態，復原快照以 segId 對回，仍然有效不作廢
+  // 排序：不改任何句段內容與狀態，復原快照以 segId 對回，仍然有效不作廢。
+  // 防禦（V64）：Modal 開啟期間 Realtime 遠端變更會讓 orderIds 過期——
+  // 過期 id 略過、不在清單內的現存句段依原相對順序附掛尾端，任何情況都不讓 undefined 進陣列
   applySegOrder: (orderIds) => set(s => {
     const doc = s.documents.find(d => d.id === s.currentDocId);
     if(!doc) return {};
-    return withSegments(s, orderIds.map(id => doc.segments.find(x => x.id === id)));
+    const byId = new Map(doc.segments.map(x => [x.id, x]));
+    const ordered = [];
+    orderIds.forEach(id => {
+      const seg = byId.get(id);
+      if(seg){ ordered.push(seg); byId.delete(id); }
+    });
+    return withSegments(s, [...ordered, ...byId.values()]);
   }),
 
-  // 合併：相鄰驗證由 Modal 把關；原文/譯文各依語系決定串接字元
+  // 合併：相鄰驗證由 Modal 把關；原文/譯文各依語系決定串接字元。
+  // 防禦（V64）：Modal 開啟期間 Realtime 遠端變更可能讓選取漂移——
+  // 現存句段湊不滿兩句或不再相鄰時放棄合併（splice 連續範圍的前提不成立，硬做會刪錯句段）
   mergeSegments: (ids) => set(s => {
     const doc = s.documents.find(d => d.id === s.currentDocId);
     if(!doc) return {};
     const idSet = new Set(ids);
     const indices = doc.segments.map((x,i) => idSet.has(x.id) ? i : -1).filter(i => i >= 0);
+    if(indices.length < 2 || !indices.every((v, k) => v === indices[0] + k)){
+      return { toast: { msg: '句段已被其他視窗變更，合併未執行，請重新開啟合併視窗。', seq: (s.toast?.seq || 0) + 1 } };
+    }
     const group = indices.map(i => doc.segments[i]);
     const p = docPair(doc);
     const first = {

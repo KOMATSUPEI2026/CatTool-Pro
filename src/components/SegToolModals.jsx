@@ -83,6 +83,14 @@ export function SegEditModal({ doc, onClose }) {
 
   const submit = () => {
     if (!items.some(it => it.ja.trim())) { setError('至少要保留一個句段。'); return; }
+    // 防禦（V64）：Modal 開啟期間句段被其他視窗增刪→工作副本已過期，照套會復活已刪句段、
+    // 丟掉遠端新增句段，一律擋下請使用者重開；以 getState 讀最新狀態驗證，
+    // click handler 同步執行，驗證到套用之間不會再有遠端事件插入
+    const fresh = useStore.getState().documents.find(d => d.id === doc.id);
+    const itemIds = new Set(items.map(it => it.segId).filter(Boolean));
+    if (!fresh || fresh.segments.some(sg => !itemIds.has(sg.id)) || itemIds.size !== fresh.segments.length) {
+      setError('句段已被其他視窗變更，未套用。請取消後重新開啟。'); return;
+    }
     applySegEdit(items);
     autoSaveAfterSegTool();
     onClose();
@@ -115,6 +123,9 @@ export function SegOrderModal({ doc, onClose }) {
   const [dragId, setDragId] = useState(null);
   const listRef = useRef(null);
   const byId = new Map(doc.segments.map(s => [s.id, s]));
+  // 防禦（V64）：Modal 開啟期間句段被其他視窗刪除→order 殘留過期 id，渲染一律跳過
+  //（送出端 applySegOrder 同樣容錯：過期 id 略過、遠端新增的句段附掛尾端）
+  const liveOrder = order.filter(id => byId.has(id));
 
   const onDragOver = (e) => {
     e.preventDefault();
@@ -133,7 +144,7 @@ export function SegOrderModal({ doc, onClose }) {
                   error="" listRef={listRef} onCancel={onClose}
                   onSubmit={() => { applySegOrder(order); autoSaveAfterSegTool(); onClose(); }}>
       <div onDragOver={onDragOver}>
-        {order.map((id, i) => (
+        {liveOrder.map((id, i) => (
           <div className={'seg-tool-item' + (dragId === id ? ' dragging' : '')} key={id}
                draggable data-segid={id}
                onDragStart={e => {

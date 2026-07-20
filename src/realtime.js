@@ -31,10 +31,12 @@ function subscribe(){
     if(status === 'SUBSCRIBED'){
       _degradeToasted = false;
       if(_everSubscribed && _syncPending){
-        // 斷線重連：先追趕漏接的變更，再補存斷線期間的本機變更
+        // 斷線重連：先追趕漏接的變更（衝突時 catchUp 會等使用者作答才 resolve，V64），
+        // 追趕完成才清 pending 並補存斷線期間的本機變更；
+        // catch 必須在 then 之後——追趕失敗才真的維持 _syncPending，下次重連再試
         catchUpAfterReconnect()
-          .catch(() => {})   // 追趕失敗維持 _syncPending，下次重連再試
-          .then(() => { _syncPending = false; autoSaveTick(); });
+          .then(() => { _syncPending = false; autoSaveTick(); })
+          .catch(() => {});
       }else{
         _everSubscribed = true;
         _syncPending = false;

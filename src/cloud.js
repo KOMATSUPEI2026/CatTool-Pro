@@ -457,7 +457,10 @@ function applyCloudDataInPlace(next){
 
 /* 斷線重連追趕：比對「現在的雲端」vs「最後已知的雲端」（不是 vs 本機——
    離線期間只有本機在改時，雲端沒動＝沒漏接，不該彈任何確認）。
-   雲端動了且本機乾淨→無感套用；兩邊都動→才彈衝突確認 */
+   雲端動了且本機乾淨→無感套用；兩邊都動→才彈衝突確認。
+   衝突時等使用者作答才 resolve（V64）：resolve 前 realtime.js 不清 _syncPending、
+   全量自動存維持暫停——否則 Modal 一開自動存就把本機蓋上雲端，
+   使用者選「載入雲端」撈回的也是被蓋過的資料，別視窗變更兩條路都救不回 */
 export async function catchUpAfterReconnect(){
   const next = await fetchAllFromCloud();
   const lastKnown = JSON.parse(_lastCloudSnapshot);
@@ -467,15 +470,19 @@ export async function catchUpAfterReconnect(){
     toast('已同步其他視窗／裝置的變更');
     return;
   }
-  st().openConfirm({
-    title:'雲端資料已變更',
-    text:'連線中斷期間，雲端（其他視窗或裝置）與本機都有變更。\n載入雲端會覆蓋本機未儲存的修改；\n保留本機則之後儲存會以本機為準回寫。',
-    cancelLabel:'保留本機', okLabel:'載入雲端（覆蓋本機）',
-    onOk: () => {
-      fetchAllFromCloud().then(applyCloudDataInPlace)
-        .catch(err => toast('雲端載入失敗：' + (err.message || String(err))));
-    },
-    wide: true
+  await new Promise((resolve) => {
+    st().openConfirm({
+      title:'雲端資料已變更',
+      text:'連線中斷期間，雲端（其他視窗或裝置）與本機都有變更。\n載入雲端會覆蓋本機未儲存的修改；\n保留本機則之後儲存會以本機為準回寫。',
+      cancelLabel:'保留本機', okLabel:'載入雲端（覆蓋本機）',
+      onOk: () => {
+        // 載入失敗不 resolve：維持全量自動存暫停（本機不可反手蓋掉雲端），下次重連再走一輪追趕
+        fetchAllFromCloud().then(applyCloudDataInPlace).then(resolve)
+          .catch(err => toast('雲端載入失敗：' + (err.message || String(err))));
+      },
+      onCancel: resolve,   // 保留本機＝使用者拍板以本機為準，resolve 後自動存回寫
+      wide: true
+    });
   });
 }
 

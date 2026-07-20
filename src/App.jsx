@@ -265,12 +265,13 @@ export default function App() {
       <WelcomeOverlay />
       {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
       {showAccount && <AccountModal onClose={() => setShowAccount(false)} />}
-      {/* 全域確認 Modal：雲端層等元件外程式碼經 store.openConfirm 觸發；text 以 \n 斷行 */}
+      {/* 全域確認 Modal：雲端層等元件外程式碼經 store.openConfirm 觸發；text 以 \n 斷行。
+          onCancel 回呼（V64）：取消鈕與點遮罩關閉都觸發——重連衝突流程靠它得知「保留本機」已拍板 */}
       {confirmModal &&
         <ConfirmModal title={confirmModal.title}
                       cancelLabel={confirmModal.cancelLabel} okLabel={confirmModal.okLabel}
                       wide={confirmModal.wide}
-                      onCancel={closeConfirm}
+                      onCancel={() => { closeConfirm(); confirmModal.onCancel?.(); }}
                       onOk={() => { closeConfirm(); confirmModal.onOk?.(); }}>
           {confirmModal.text.split('\n').map((line, i) => (
             i === 0 ? line : <span key={i}><br />{line}</span>

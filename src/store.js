@@ -104,8 +104,27 @@ function saveLocalPrefs(prefs){
   catch(e){ /* 無痕模式等寫入失敗：本次仍生效 */ }
 }
 
-/* 目前檔案的句段陣列替換（翻譯工作區各 action 共用；順帶蓋 updatedAt） */
+/* 目前檔案的句段陣列替換（翻譯工作區各 action 共用；順帶蓋 updatedAt）。
+   V68 方向 B（比照 pruneEmptiedFolder）：句段被清光→文件一併自動移除。
+   只有「刪除句子」與「編輯 Modal 清空全部原文」兩條路徑會傳入空陣列（其餘 action 皆等長 map 或增段），
+   故集中在此守住「不留空文件」不變量；留言鏡像 cascade、清 currentDocId/焦點/復原快照、
+   順手消滅變空的資料夾，TM/術語不動（核心決策 1：刪文件不牽連 TM/術語） */
 function withSegments(s, segments){
+  if(segments.length === 0){
+    const doc = s.documents.find(d => d.id === s.currentDocId);
+    if(doc){
+      const documents = s.documents.filter(d => d.id !== doc.id);
+      return {
+        documents,
+        comments: s.comments.filter(c => c.docId !== doc.id),
+        currentDocId: null,
+        lastFocusedSegId: null,
+        srUndoSnapshot: s.srUndoSnapshot?.docId === doc.id ? null : s.srUndoSnapshot,
+        folders: pruneEmptiedFolder(s.folders, documents, doc.folderId),
+        toast: { msg: `文件「${doc.name}」已因句段全數刪除而移除`, seq: (s.toast?.seq || 0) + 1 }
+      };
+    }
+  }
   return {
     documents: s.documents.map(d =>
       d.id === s.currentDocId ? { ...d, segments, updatedAt: Date.now() } : d)

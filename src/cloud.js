@@ -251,6 +251,21 @@ async function fetchAllFromCloud(){
   };
 }
 
+/* 從一份 cloudSnapshot 字串取各 DB 表的 id 集合，作為比對刪除的「最後已知雲端」基準（V67 中-A）。
+   鍵名對映：快照存 store 慣例（termBase/tmSegments），這裡回 DB 表名（terms/tm）；
+   segments 由 documents[].segments 攤平。解析失敗回全空＝保守退回（該表不刪任何列） */
+function snapshotIdSets(snapStr){
+  const ids = { folders: new Set(), documents: new Set(), segments: new Set(), terms: new Set(), tm: new Set(), comments: new Set() };
+  let snap;
+  try{ snap = JSON.parse(snapStr); }catch(e){ return ids; }
+  (snap.folders || []).forEach(f => ids.folders.add(f.id));
+  (snap.documents || []).forEach(d => { ids.documents.add(d.id); (d.segments || []).forEach(s => ids.segments.add(s.id)); });
+  (snap.termBase || []).forEach(t => ids.terms.add(t.id));
+  (snap.tmSegments || []).forEach(t => ids.tm.add(t.id));
+  (snap.comments || []).forEach(c => ids.comments.add(c.id));
+  return ids;
+}
+
 /* ---------------- 儲存：全量 upsert＋比對刪除消失列（Phase 1 維持「一鍵全存」語意） ----------------
    不用 delete-all＋insert：Phase 2 的 segment_history 掛在 segments 外鍵 cascade 上，
    整刪重建會把歷史一併炸掉，故一開始就用 upsert 語意 */
@@ -271,6 +286,7 @@ export async function saveAllToCloud(opts = {}){
   useStore.setState({ cloudBusy: true });
   try{
     const snapAtStart = cloudSnapshot();   // 儲存期間若又打字，快照對不上=仍視為未儲存
+    const prevIds = snapshotIdSets(_lastCloudSnapshot);   // 比對刪除基準＝最後已知雲端（V67 中-A，覆寫前先取）
     const rows = serializeForCloud();
     const TABLES = ['folders', 'documents', 'segments', 'comments', 'terms', 'tm'];
     const existing = {};
@@ -279,10 +295,13 @@ export async function saveAllToCloud(opts = {}){
     // upsert 順序守外鍵：folders → documents → segments → comments；terms/tm 無依賴
     for(const t of TABLES) await db.upsert(t, rows[t]);
 
-    // 刪除消失列：documents 先刪（cascade 帶走其句段與留言；已 cascade 的 id 再刪一次是無害空操作）
+    // 刪除消失列（documents 先刪，cascade 帶走其句段與留言；已 cascade 的 id 再刪一次是無害空操作）：
+    // 只刪「我曾知道在雲端（prevIds）且已從 store 移除（不在 keep）」的列（V67 中-A）。
+    // 別視窗剛新增、本機 Realtime 事件尚未送達的列不在 prevIds → 一律不刪，交 Realtime 補進 store，
+    // 避免多視窗下誤刪別視窗的新增（其 DELETE 回聲無 client_id 無法過濾，會連帶讓別視窗也移除該列）
     const missing = (t) => {
       const keep = new Set(rows[t].map(r => r.id));
-      return existing[t].filter(id => !keep.has(id));
+      return existing[t].filter(id => prevIds[t].has(id) && !keep.has(id));
     };
     for(const t of ['documents', 'segments', 'comments', 'folders', 'terms', 'tm'])
       await db.deleteIds(t, missing(t));
@@ -295,7 +314,8 @@ export async function saveAllToCloud(opts = {}){
     toast(`${opts.auto ? '已自動儲存至雲端' : '已儲存至雲端'}（${documents.length} 份文件、${termBase.length} 條術語、${tmSegments.length} 句記憶｜${hhmm}）`);
     useStore.setState(s => ({ cloudFlashSeq: s.cloudFlashSeq + 1 }));   // 雲端鈕短暫轉實心雲
   }catch(err){
-    toast('儲存失敗：' + (err.message || String(err)));
+    // 非原子多表寫入中途失敗＝雲端瞬時不完整，但 _lastCloudSnapshot 未推進 → 保底自動存會重試補齊（V67 中-B）
+    toast('儲存未完成，資料已保留在本機、稍後會自動重試：' + (err.message || String(err)));
   }finally{
     useStore.setState({ cloudBusy: false });
   }
@@ -707,9 +727,13 @@ if(import.meta.hot) import.meta.hot.dispose(() => {
   _authSub?.unsubscribe();
 });
 
-/* 句段整理五功能送出後即時存雲端（已登入才觸發；訪客沿用手動儲存流程） */
+/* 句段整理五功能／留言 CRUD／匯入送出後即時存雲端（已登入才觸發；訪客沿用手動儲存流程）。
+   斷線期間全量自動存暫停（防舊蓋新），此處補一則即時回饋，讓使用者知道這次顯式變更會延後上傳、
+   降低斷線中關頁而以為已存的風險（V67 低-D；重連追趕會補存） */
 export function autoSaveAfterSegTool(){
-  if(st().auth.token) saveAllToCloud({auto:true});
+  if(!st().auth.token) return;
+  if(_syncPendingCheck()){ toast('雲端同步中斷，此變更已存本機，重新連上後會自動上傳'); return; }
+  saveAllToCloud({auto:true});
 }
 
 /* 測試後門：Puppeteer 驗收需撥快「最後改動時間」模擬閒置（同 vanilla 直接改全域變數） */

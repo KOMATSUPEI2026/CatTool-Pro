@@ -189,9 +189,11 @@ export function docTargetAoA(doc) {
   return [['標號', p.tgt], ...doc.segments.map(s => [s.srcNo || '', s.zh || ''])];
 }
 
-/* 譯文 docx（V59 微調3）：檔名（粗體）→空行→逐句段「標號（粗體）＋譯文＋空行」；
-   標號取「標號欄」原樣輸出（不另加前綴——原稿的 /1 這類斜線本就在欄位值裡）；
-   句段無標號就略過標號列只出譯文。譯文內換行以 <w:br/> 保留 */
+/* 譯文 docx（V59 微調3；V61 微調標號制）：檔名（粗體）→空行→逐句段「標號（粗體）＋譯文＋空行」；
+   有標號欄位的文件（任一句段有 srcNo）標號一律輸出「/」＋陣列現狀序號（position+1）——
+   不用 srcNo 原值：句段經排序/合併/刪除/新增後 srcNo 已偏離現況順序（V61 定案）；
+   譯文為空＝留空白（略過譯文列、只留句段間空行）。全無標號的文件維持只出譯文。
+   譯文內換行以 <w:br/> 保留 */
 function wPara(text, bold) {
   if (text === '') return '<w:p/>';
   const boldPr = bold ? '<w:rPr><w:b/></w:rPr>' : '';
@@ -201,9 +203,10 @@ function wPara(text, bold) {
 }
 export function docTargetDocxXml(doc) {
   const paras = [wPara(doc.name || 'document', true), '<w:p/>'];
-  doc.segments.forEach(s => {
-    if (s.srcNo) paras.push(wPara(String(s.srcNo), true));
-    paras.push(wPara(s.zh || '', false));
+  const numbered = doc.segments.some(s => s.srcNo);
+  doc.segments.forEach((s, i) => {
+    if (numbered) paras.push(wPara(`/${i + 1}`, true));
+    if ((s.zh || '') !== '') paras.push(wPara(s.zh, false));
     paras.push('<w:p/>');
   });
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +

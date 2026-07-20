@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { useStore } from '../store.js';
 import { docStats, docStatus, fmtDate } from '../utils.js';
 import { exportDocs } from '../exporters.js';
+import Dashboard from '../components/Dashboard.jsx';
 import NewFolderModal from '../components/NewFolderModal.jsx';
 import { NameEditor, RenameListModal, MoveDocsModal, DeleteBatchModal, ExportDocsModal }
   from '../components/ProjectModals.jsx';
@@ -196,6 +197,8 @@ export default function ProjectsTab() {
   });
 
   return (
+    <>
+    <Dashboard />
     <div className="card">
       <div className="table-toolbar">
         <span className="search-wrap">
@@ -320,5 +323,6 @@ export default function ProjectsTab() {
                          onClose={() => setModal(null)}
                          onSubmit={onPickExport} />}
     </div>
+    </>
   );
 }

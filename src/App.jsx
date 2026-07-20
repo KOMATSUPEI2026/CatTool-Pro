@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from './store.js';
 import IngestTab from './tabs/IngestTab.jsx';
 import ProjectsTab from './tabs/ProjectsTab.jsx';
@@ -32,6 +32,23 @@ const TABS = [
 
 const TAB_VIEWS = { ingest: IngestTab, projects: ProjectsTab, work: WorkTab, terms: TermsTab, tm: TmTab, settings: SettingsTab };
 
+/* 白噪音音量控制走官方 IFrame API（V63 微調）：script 不隨頁面載入，第一次播放才動態
+   注入 https://www.youtube.com/iframe_api（一次性、快取 Promise）——API 由 YouTube 端
+   與 widget 內部訊息格式成對維護，格式改版免疫；載入失敗回 null（音量失效、播放不受影響） */
+let ytApiPromise = null;
+function loadYtApi() {
+  if (ytApiPromise) return ytApiPromise;
+  ytApiPromise = new Promise((resolve) => {
+    if (window.YT && window.YT.Player) { resolve(window.YT); return; }
+    window.onYouTubeIframeAPIReady = () => resolve(window.YT);
+    const s = document.createElement('script');
+    s.src = 'https://www.youtube.com/iframe_api';
+    s.onerror = () => resolve(null);
+    document.head.appendChild(s);
+  });
+  return ytApiPromise;
+}
+
 export default function App() {
   const currentTab  = useStore(s => s.currentTab);
   const activateTab = useStore(s => s.activateTab);
@@ -50,6 +67,7 @@ export default function App() {
   const musicPlaying = useStore(s => s.musicPlaying);
   const toggleMusic  = useStore(s => s.toggleMusic);
   const ytUrl        = useStore(s => s.prefs.ytUrl);
+  const musicVolume  = useStore(s => s.prefs.musicVolume);
   const ytId = parseYouTubeId(ytUrl);
 
   const [darkMode, setDarkMode] = useState(false);
@@ -91,6 +109,35 @@ export default function App() {
     document.documentElement.setAttribute('data-font-mode', fontMode);
     if (useStore.getState().currentTab === 'work') autoGrowAll('#seg-list textarea');
   }, [fontMode]);
+
+  /* 白噪音音量（V63 微調）：播放開始→載官方 API→YT.Player 包住既有 #yt-noise iframe
+     （需 src 帶 enablejsapi=1），onReady 套當下 prefs 音量；停止/換片＝destroy 解綁
+     （iframe 本體由 React 掛卸，destroy 只拆事件橋——try/catch 防 iframe 已先卸載）。
+     拖桿即調即生效：播放中 musicVolume 一變就 player.setVolume */
+  const ytPlayerRef = useRef(null);
+  useEffect(() => {
+    if (!musicPlaying || !ytId) return;
+    let cancelled = false;
+    loadYtApi().then(YT => {
+      if (cancelled || !YT || !document.getElementById('yt-noise')) return;
+      ytPlayerRef.current = new YT.Player('yt-noise', {
+        events: { onReady: e => e.target.setVolume(useStore.getState().prefs.musicVolume) }
+      });
+    });
+    return () => {
+      cancelled = true;
+      if (ytPlayerRef.current) {
+        try { ytPlayerRef.current.destroy(); } catch { /* iframe 已隨 React 卸載 */ }
+        ytPlayerRef.current = null;
+      }
+    };
+  }, [musicPlaying, ytId]);
+  useEffect(() => {
+    const p = ytPlayerRef.current;
+    if (musicPlaying && p && typeof p.setVolume === 'function') {
+      try { p.setVolume(musicVolume); } catch { /* 播放器未就緒：onReady 會套 */ }
+    }
+  }, [musicVolume, musicPlaying]);
 
   return (
     <div className="wrap">
@@ -171,10 +218,11 @@ export default function App() {
       })}
 
       {/* 白噪音（V63）：播放中才掛隱藏 YouTube iframe；allow=autoplay 委派點擊手勢、
-          loop=1&playlist=同 ID 循環播放；停止＝卸載 iframe */}
+          loop=1&playlist=同 ID 循環播放；停止＝卸載 iframe。
+          enablejsapi=1＋origin＝IFrame API 包住此 iframe 控音量的前提（見上方 loadYtApi effect） */}
       {musicPlaying && ytId &&
         <iframe id="yt-noise" title="白噪音音樂"
-                src={`https://www.youtube.com/embed/${ytId}?autoplay=1&loop=1&playlist=${ytId}`}
+                src={`https://www.youtube.com/embed/${ytId}?autoplay=1&loop=1&playlist=${ytId}&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`}
                 allow="autoplay"
                 style={{ position: 'fixed', width: 0, height: 0, border: 0, visibility: 'hidden', pointerEvents: 'none' }} />}
 

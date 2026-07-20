@@ -60,6 +60,7 @@ const defaultPrefs = () => ({
   pvTransparency: 50,   // 整頁預覽毛玻璃透明度 %（V63）：越高越透；alpha＝(100−值)/100，50＝V53 定案原值
   pvBlur: 15,           // 整頁預覽毛玻璃模糊度 px（V63）：0–30；15＝V53 定案原值
   ytUrl: '',            // 白噪音 YouTube 連結（V63）：header 音樂鈕播放來源
+  musicVolume: 100,     // 白噪音音量 %（V63 微調）：0–100 步進 5；100＝YouTube 預設音量
   updatedAt: 0
 });
 export function normalizePrefs(raw){
@@ -84,6 +85,9 @@ export function normalizePrefs(raw){
       ? Math.round(raw.pvBlur)
       : d.pvBlur,
     ytUrl: typeof raw.ytUrl === 'string' ? raw.ytUrl : d.ytUrl,
+    musicVolume: (typeof raw.musicVolume === 'number' && raw.musicVolume >= 0 && raw.musicVolume <= 100)
+      ? Math.round(raw.musicVolume / 5) * 5
+      : d.musicVolume,
     updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : 0
   };
 }

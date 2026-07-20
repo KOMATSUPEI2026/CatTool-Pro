@@ -119,6 +119,7 @@ function PunctSection() {
 /* ④ 白噪音音樂：YouTube 連結存 prefs（失焦/Enter 送出），播放鈕與 header 音樂鈕同一開關 */
 function MusicSection() {
   const ytUrl = useStore(s => s.prefs.ytUrl);
+  const musicVolume = useStore(s => s.prefs.musicVolume);
   const patchPrefs = useStore(s => s.patchPrefs);
   const musicPlaying = useStore(s => s.musicPlaying);
   const toggleMusic = useStore(s => s.toggleMusic);
@@ -132,7 +133,7 @@ function MusicSection() {
   return (
     <section className="ps-section" id="ps-music-section">
       <h3>白噪音音樂</h3>
-      <p className="ps-hint">貼上 YouTube 連結，按「音樂播放」循環播放當作工作白噪音；頂列音樂鈕可隨時播放／停止。</p>
+      <p className="ps-hint">貼上 YouTube 連結，按「音樂播放」循環播放當作工作白噪音；頂列音樂鈕可隨時播放／停止，音量滑桿播放中即調即生效。</p>
       <div className="ps-music-row">
         <input type="text" id="ps-yt-url" ref={inputRef} placeholder="https://www.youtube.com/watch?v=…"
                value={val}
@@ -144,6 +145,14 @@ function MusicSection() {
           <i className={'bi ' + (musicPlaying ? 'bi-stop-fill' : 'bi-music-note')}></i>
           {musicPlaying ? ' 停止播放' : ' 音樂播放'}
         </button>
+      </div>
+      {/* 音量（V63 微調）：存 prefs.musicVolume 跨裝置同步；播放中 App 端 effect 即時 postMessage */}
+      <div className="ps-pv-hrow ps-vol-row">
+        <span className="ps-slider-label">音量</span>
+        <input type="range" className="ps-slider" id="ps-vol-slider"
+               min="0" max="100" step="5" value={musicVolume}
+               onChange={e => patchPrefs({ musicVolume: Number(e.target.value) })} />
+        <span className="ps-slider-value" id="ps-vol-value">{musicVolume}%</span>
       </div>
     </section>
   );

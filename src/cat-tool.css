@@ -73,7 +73,7 @@ ul, ol { list-style: none; padding: 0; }
     --text-scale:1;
     --ui-pad-scale:1;
     --handle-active-tint:rgba(251,250,247,0.34);
-    --glass-bg:rgba(251,250,247,0.5);   /* 整頁預覽毛玻璃底（50% 不透明，配 backdrop blur；V53 實測定案） */
+    --glass-rgb:251,250,247;   /* 整頁預覽毛玻璃底色（V63 起 alpha/blur 由 prefs 供變數，V53 原值＝alpha .5＋blur 15px） */
   }
   :root[data-text-scale="1.2"]{ --text-scale:1.2; --ui-pad-scale:1.1; }
   :root[data-text-scale="1.4"]{ --text-scale:1.4; --ui-pad-scale:1.1; }
@@ -108,7 +108,7 @@ ul, ol { list-style: none; padding: 0; }
     --cmt-accent-soft:rgba(221,143,83,0.16);
     --st-done:#FBE251;
     --st-done-text:#1B1A17;
-    --glass-bg:rgba(27,26,23,0.5);
+    --glass-rgb:27,26,23;
   }
   html,body{padding:0;}
   body{
@@ -924,20 +924,20 @@ ul, ol { list-style: none; padding: 0; }
     font-family:var(--font-display);font-size:var(--fs-md);font-weight:600;color:var(--seal);
     margin-bottom:12px;
   }
-  .tm-sense-slider{
+  .tm-sense-slider, .ps-slider{   /* .ps-slider＝V63 個人設定區共用同款滑桿 */
     -webkit-appearance:none;appearance:none;
     width:100%;height:10px;border-radius:var(--radius);outline:none;
     background-image:linear-gradient(90deg, var(--seal) 0%, var(--hist-accent) 50%, var(--vermilion) 100%);
     opacity:.8;transition:opacity .2s;cursor:pointer;
   }
-  .tm-sense-slider:hover{opacity:1;}
-  .tm-sense-slider::-webkit-slider-thumb{
+  .tm-sense-slider:hover, .ps-slider:hover{opacity:1;}
+  .tm-sense-slider::-webkit-slider-thumb, .ps-slider::-webkit-slider-thumb{
     -webkit-appearance:none;appearance:none;
     width:20px;height:20px;border-radius:50%;
     background:var(--paper-card);border:2px solid var(--ink);
     box-shadow:var(--shadow-1);cursor:pointer;
   }
-  .tm-sense-slider::-moz-range-thumb{
+  .tm-sense-slider::-moz-range-thumb, .ps-slider::-moz-range-thumb{
     width:20px;height:20px;border-radius:50%;
     background:var(--paper-card);border:2px solid var(--ink);
     box-shadow:var(--shadow-1);cursor:pointer;
@@ -1139,9 +1139,9 @@ ul, ol { list-style: none; padding: 0; }
   }
   .page-preview-card{
     position:relative;width:100%;height:100%;
-    background:var(--glass-bg);
-    -webkit-backdrop-filter:blur(15px) saturate(1.5);
-    backdrop-filter:blur(15px) saturate(1.5);
+    background:rgba(var(--glass-rgb), var(--pv-alpha, .5));
+    -webkit-backdrop-filter:blur(var(--pv-blur, 15px)) saturate(1.5);
+    backdrop-filter:blur(var(--pv-blur, 15px)) saturate(1.5);
     border:1px solid var(--line);border-radius:var(--radius-xl);
     box-shadow:var(--shadow-4);
     display:flex;flex-direction:column;
@@ -1232,5 +1232,68 @@ ul, ol { list-style: none; padding: 0; }
     font-family:var(--font-display);font-size:var(--fs-lg);font-weight:700;color:var(--ink);
   }
   .dash-tile span{font-size:var(--fs-xs);color:var(--ink-soft);letter-spacing:.06em;}
+
+  /* ===== V63 個人設定區：整頁預覽效果調校＋術語標籤/快捷標點編輯＋白噪音音樂 ===== */
+  .ps-grid{display:flex;flex-direction:column;gap:16px;max-width:960px;}
+  .ps-section{
+    background:var(--paper-card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:16px 20px;
+  }
+  .ps-section h3{
+    font-family:var(--font-display);font-size:var(--fs-md);font-weight:700;color:var(--ink);
+    margin:0 0 4px;letter-spacing:.04em;
+  }
+  .ps-hint{font-size:var(--fs-sm);color:var(--ink-soft);margin:0 0 12px;}
+
+  /* 整頁預覽效果：左縱軸模糊度滑桿＋矩形預覽框（假文字上蓋毛玻璃層）＋下橫軸透明度滑桿 */
+  .ps-pv-layout{display:flex;gap:12px;align-items:stretch;}
+  .ps-pv-vslider-col{display:flex;flex-direction:column;align-items:center;gap:6px;width:56px;flex:none;}
+  .ps-slider.ps-vert{
+    writing-mode:vertical-lr;direction:rtl;   /* 上＝大值 */
+    width:10px;height:100%;flex:1;
+    background-image:linear-gradient(0deg, var(--seal) 0%, var(--hist-accent) 50%, var(--vermilion) 100%);
+  }
+  .ps-pv-main{flex:1;display:flex;flex-direction:column;gap:8px;min-width:0;}
+  .ps-pv-box{
+    position:relative;height:180px;border:1px solid var(--line);border-radius:var(--radius);
+    overflow:hidden;background:var(--paper);
+  }
+  .ps-pv-faketext{
+    position:absolute;inset:0;padding:14px 18px;overflow:hidden;
+    font-family:var(--font-src);font-size:var(--fs-md);line-height:2;color:var(--ink);
+    white-space:pre-wrap;word-break:break-word;user-select:none;
+  }
+  .ps-pv-glass{
+    position:absolute;inset:0;
+    background:rgba(var(--glass-rgb), var(--pv-alpha, .5));
+    -webkit-backdrop-filter:blur(var(--pv-blur, 15px)) saturate(1.5);
+    backdrop-filter:blur(var(--pv-blur, 15px)) saturate(1.5);
+  }
+  .ps-slider-label{
+    font-size:var(--fs-xs);color:var(--ink-soft);letter-spacing:.04em;text-align:center;
+    writing-mode:horizontal-tb;
+  }
+  .ps-slider-value{font-family:var(--font-display);font-size:var(--fs-sm);font-weight:600;color:var(--seal);}
+  .ps-pv-hrow{display:flex;align-items:center;gap:10px;}
+  .ps-pv-hrow .ps-slider{flex:1;}
+
+  /* 標籤/標點格位列（沿用 tag-row/tag-slot 家族樣式）；標點分組加組號 */
+  .ps-slot-group{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+  .ps-slot-group:last-child{margin-bottom:0;}
+  .ps-group-no{
+    font-family:var(--font-display);font-size:var(--fs-xs);font-weight:700;color:var(--ink-soft);
+    width:44px;flex:none;letter-spacing:.04em;white-space:nowrap;
+  }
+
+  /* 白噪音音樂：連結輸入＋播放/停止鈕 */
+  .ps-music-row{display:flex;gap:8px;align-items:center;}
+  .ps-music-row input{
+    flex:1;padding:8px 12px;border:1px solid var(--line);border-radius:var(--radius);
+    background:var(--paper);color:var(--ink);font-size:var(--fs-sm);
+  }
+  .ps-music-row input:focus{outline:none;border-color:var(--seal);}
+
+  /* header 音樂鈕播放中：朱紅提示（icon 鈕家族的 active 變體） */
+  .icon-btn.music-on{color:var(--vermilion);border-color:var(--vermilion);}
 
   input[type=file]{display:none;}

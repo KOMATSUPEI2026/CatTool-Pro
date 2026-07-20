@@ -5,6 +5,8 @@ import ProjectsTab from './tabs/ProjectsTab.jsx';
 import WorkTab from './tabs/WorkTab.jsx';
 import TermsTab from './tabs/TermsTab.jsx';
 import TmTab from './tabs/TmTab.jsx';
+import SettingsTab from './tabs/SettingsTab.jsx';
+import { parseYouTubeId } from './utils.js';
 import Toast from './components/Toast.jsx';
 import ConfirmModal from './components/ConfirmModal.jsx';
 import WelcomeOverlay from './components/WelcomeOverlay.jsx';
@@ -24,10 +26,11 @@ const TABS = [
   { key: 'projects', label: '專案管理區' },
   { key: 'work',     label: '翻譯工作區' },
   { key: 'terms',    label: '術語庫' },
-  { key: 'tm',       label: '翻譯記憶' }
+  { key: 'tm',       label: '翻譯記憶' },
+  { key: 'settings', label: '個人設定區' }
 ];
 
-const TAB_VIEWS = { ingest: IngestTab, projects: ProjectsTab, work: WorkTab, terms: TermsTab, tm: TmTab };
+const TAB_VIEWS = { ingest: IngestTab, projects: ProjectsTab, work: WorkTab, terms: TermsTab, tm: TmTab, settings: SettingsTab };
 
 export default function App() {
   const currentTab  = useStore(s => s.currentTab);
@@ -44,6 +47,10 @@ export default function App() {
   const cloudFlashSeq = useStore(s => s.cloudFlashSeq);
   const confirmModal = useStore(s => s.confirmModal);
   const closeConfirm = useStore(s => s.closeConfirm);
+  const musicPlaying = useStore(s => s.musicPlaying);
+  const toggleMusic  = useStore(s => s.toggleMusic);
+  const ytUrl        = useStore(s => s.prefs.ytUrl);
+  const ytId = parseYouTubeId(ytUrl);
 
   const [darkMode, setDarkMode] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -114,6 +121,11 @@ export default function App() {
             <button className="icon-btn" id="btn-shortcuts" data-tip="快捷鍵說明" onClick={() => setShowShortcuts(true)}>
               <i className="bi bi-keyboard"></i>
             </button>
+            <button className={'icon-btn' + (musicPlaying ? ' music-on' : '')} id="btn-music"
+                    data-tip={musicPlaying ? '停止播放白噪音' : '播放白噪音（連結在個人設定區）'}
+                    onClick={toggleMusic}>
+              <i className="bi bi-music-note"></i>
+            </button>
             <button className="icon-btn" id="btn-dark-mode"
                     data-tip={darkMode ? '切換亮色模式' : '切換暗黑模式'}
                     onClick={() => setDarkMode(!darkMode)}>
@@ -157,6 +169,14 @@ export default function App() {
           </section>
         );
       })}
+
+      {/* 白噪音（V63）：播放中才掛隱藏 YouTube iframe；allow=autoplay 委派點擊手勢、
+          loop=1&playlist=同 ID 循環播放；停止＝卸載 iframe */}
+      {musicPlaying && ytId &&
+        <iframe id="yt-noise" title="白噪音音樂"
+                src={`https://www.youtube.com/embed/${ytId}?autoplay=1&loop=1&playlist=${ytId}`}
+                allow="autoplay"
+                style={{ position: 'fixed', width: 0, height: 0, border: 0, visibility: 'hidden', pointerEvents: 'none' }} />}
 
       <TmSidebar />
       <PvSidebar />

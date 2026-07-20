@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { cid, docPair, langJoiner } from './utils.js';
+import { cid, docPair, langJoiner, parseYouTubeId } from './utils.js';
 
 /* ---- Phase 0 本機持久化：四大資料陣列鏡像到 localStorage ----
    延遲序列化 storage：updateSegZh 逐鍵觸發 setState，整本書逐鍵 JSON.stringify 會卡打字，
@@ -57,6 +57,9 @@ const defaultPrefs = () => ({
   punctPinned: false,
   termTagPalette: Array(7).fill(''),
   tmThreshold: 70,   // TM 靈敏度門檻（V56）：側欄相似模式只列相似度 ≥ 此值的結果（0–100、步進 5）
+  pvTransparency: 50,   // 整頁預覽毛玻璃透明度 %（V63）：越高越透；alpha＝(100−值)/100，50＝V53 定案原值
+  pvBlur: 15,           // 整頁預覽毛玻璃模糊度 px（V63）：0–30；15＝V53 定案原值
+  ytUrl: '',            // 白噪音 YouTube 連結（V63）：header 音樂鈕播放來源
   updatedAt: 0
 });
 export function normalizePrefs(raw){
@@ -74,6 +77,13 @@ export function normalizePrefs(raw){
     tmThreshold: (typeof raw.tmThreshold === 'number' && raw.tmThreshold >= 0 && raw.tmThreshold <= 100)
       ? Math.round(raw.tmThreshold / 5) * 5
       : d.tmThreshold,
+    pvTransparency: (typeof raw.pvTransparency === 'number' && raw.pvTransparency >= 0 && raw.pvTransparency <= 100)
+      ? Math.round(raw.pvTransparency / 5) * 5
+      : d.pvTransparency,
+    pvBlur: (typeof raw.pvBlur === 'number' && raw.pvBlur >= 0 && raw.pvBlur <= 30)
+      ? Math.round(raw.pvBlur)
+      : d.pvBlur,
+    ytUrl: typeof raw.ytUrl === 'string' ? raw.ytUrl : d.ytUrl,
     updatedAt: typeof raw.updatedAt === 'number' ? raw.updatedAt : 0
   };
 }
@@ -132,6 +142,7 @@ export const useStore = create(persist((set) => ({
   cmtOpenSeq: 0,            // 留言側欄展開請求（V55）：卡片留言 icon 點擊遞增，側欄訂閱後展開並固定
   cloudBusy: false,         // 儲存進行中（鎖「儲存至雲端」按鈕＋重入守門）
   cloudFlashSeq: 0,         // 全量儲存成功遞增：雲端鈕短暫轉實心雲 icon（V51）
+  musicPlaying: false,      // 白噪音播放中（V63）：header 音樂鈕開關；純畫面暫態不落地、不進 prefs
   welcomeVisible: true,     // 歡迎面板（登入成功或選訪客後收起）
   confirmModal: null,       // 全域確認 Modal { title, text, cancelLabel, okLabel, onOk, wide }；雲端層等元件外程式碼用
 
@@ -150,6 +161,15 @@ export const useStore = create(persist((set) => ({
     return { fontMode: next, termTip: null };
   }),
   setIngestLang: (which, value) => set(which === 'src' ? { ingestSrcLang: value } : { ingestTgtLang: value }),
+  setMusicPlaying: (on) => set({ musicPlaying: !!on }),
+  // 白噪音開關（V63）：header 音樂鈕與個人設定區播放鈕共用；連結無效以 Toast 引導
+  toggleMusic: () => set(s => {
+    if (s.musicPlaying) return { musicPlaying: false };
+    if (!parseYouTubeId(s.prefs.ytUrl)) {
+      return { toast: { msg: '請先在「個人設定區」輸入有效的 YouTube 連結', seq: (s.toast?.seq || 0) + 1 } };
+    }
+    return { musicPlaying: true };
+  }),
 
   // 偏好變更唯一入口：蓋 updatedAt＋寫 localStorage；雲端上傳由 cloud.js 訂閱 prefs 參照變化觸發
   patchPrefs: (patch) => set(s => {

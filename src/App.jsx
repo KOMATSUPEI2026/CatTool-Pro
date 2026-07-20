@@ -60,6 +60,18 @@ export default function App() {
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
   }, [darkMode]);
+  /* Ctrl/Cmd+S＝儲存至雲端（V62）：一律攔下瀏覽器「另存網頁」；儲存中不重入
+     （與 #btn-cloud-save 同入口——未登入時 saveAllToCloud 自帶登入引導 Modal） */
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        if (!useStore.getState().cloudBusy) saveAllToCloud();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   /* 字級相關屬性寫上 <html> 後譯文框要補量高度：SegRow 自己的 useLayoutEffect 跑在
      這裡之前（量到的還是舊字級，屬性生效後長譯文會爆框——V51 修正），
      故屬性設定完（新字級已生效）再 autoGrowAll；非工作分頁不量（display:none 陷阱），

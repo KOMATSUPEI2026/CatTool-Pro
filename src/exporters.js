@@ -177,23 +177,32 @@ export function docRowsJSON(doc) {
   }));
 }
 
+/* 標號制（V61 定案、V62 擴及 xlsx）：有標號欄位的文件（任一句段有 srcNo）
+   標號一律輸出「/」＋陣列現狀序號（position+1）——不用 srcNo 原值：句段經
+   排序/合併/刪除/新增運算後，srcNo 已偏離文件現況順序；全無標號的文件標號留空 */
+function posNo(doc) {
+  const numbered = doc.segments.some(s => s.srcNo);
+  return (i) => numbered ? `/${i + 1}` : '';
+}
+
 /* 雙語 xlsx：標號｜來源語系｜目標語系（同入稿模板，round-trip 可再匯入） */
 export function docBilingualAoA(doc) {
   const p = pairOf(doc);
-  return [['標號', p.src, p.tgt], ...doc.segments.map(s => [s.srcNo || '', s.ja, s.zh || ''])];
+  const no = posNo(doc);
+  return [['標號', p.src, p.tgt], ...doc.segments.map((s, i) => [no(i), s.ja, s.zh || ''])];
 }
 
 /* 譯文 xlsx：標號＋譯文兩欄（模板去掉原文欄） */
 export function docTargetAoA(doc) {
   const p = pairOf(doc);
-  return [['標號', p.tgt], ...doc.segments.map(s => [s.srcNo || '', s.zh || ''])];
+  const no = posNo(doc);
+  return [['標號', p.tgt], ...doc.segments.map((s, i) => [no(i), s.zh || ''])];
 }
 
-/* 譯文 docx（V59 微調3；V61 微調標號制）：檔名（粗體）→空行→逐句段「標號（粗體）＋譯文＋空行」；
-   有標號欄位的文件（任一句段有 srcNo）標號一律輸出「/」＋陣列現狀序號（position+1）——
-   不用 srcNo 原值：句段經排序/合併/刪除/新增後 srcNo 已偏離現況順序（V61 定案）；
-   譯文為空＝留空白（略過譯文列、只留句段間空行）。全無標號的文件維持只出譯文。
-   譯文內換行以 <w:br/> 保留 */
+/* 譯文 docx（V59 微調3；V61 標號制；V62 空譯文保留空白列）：
+   檔名（粗體）→空行→逐句段「標號（粗體，/position+1）＋譯文列＋空行」；
+   譯文為空＝該列留空白段落（不縮排版——每句段固定三列，匯出與文件現狀逐格對應）。
+   全無標號的文件不出標號列。譯文內換行以 <w:br/> 保留 */
 function wPara(text, bold) {
   if (text === '') return '<w:p/>';
   const boldPr = bold ? '<w:rPr><w:b/></w:rPr>' : '';
@@ -203,10 +212,10 @@ function wPara(text, bold) {
 }
 export function docTargetDocxXml(doc) {
   const paras = [wPara(doc.name || 'document', true), '<w:p/>'];
-  const numbered = doc.segments.some(s => s.srcNo);
+  const no = posNo(doc);
   doc.segments.forEach((s, i) => {
-    if (numbered) paras.push(wPara(`/${i + 1}`, true));
-    if ((s.zh || '') !== '') paras.push(wPara(s.zh, false));
+    if (no(i)) paras.push(wPara(no(i), true));
+    paras.push(wPara(s.zh || '', false));
     paras.push('<w:p/>');
   });
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +

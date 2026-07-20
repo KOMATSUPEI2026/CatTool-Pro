@@ -146,7 +146,7 @@ export const useStore = create(persist((set) => ({
   // 使用者偏好（V54）：標點三組/組別/固定、術語標籤面板；localStorage 即載，登入後與雲端對時
   prefs: loadLocalPrefs(),
   // 雲端層（讀寫邏輯在 cloud.js，這裡只放需要驅動畫面的狀態）
-  auth: { token: null, email: null },   // Supabase Auth session 映射（SDK 自動續期，無過期防護需求）
+  auth: { token: null, email: null, uid: null },   // Supabase Auth session 映射（SDK 自動續期，無過期防護需求）；uid＝V65 換帳號守門用
   cmtOpenSeq: 0,            // 留言側欄展開請求（V55）：卡片留言 icon 點擊遞增，側欄訂閱後展開並固定
   cloudBusy: false,         // 儲存進行中（鎖「儲存至雲端」按鈕＋重入守門）
   cloudFlashSeq: 0,         // 全量儲存成功遞增：雲端鈕短暫轉實心雲 icon（V51）

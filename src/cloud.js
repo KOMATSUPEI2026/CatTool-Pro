@@ -35,7 +35,7 @@ export function requestGoogleLogin(opts = {}){
 let _loginFlowDone = false;
 const { data: { subscription: _authSub } } = supabase.auth.onAuthStateChange((event, session) => {
   if(session){
-    st().setAuth({ token: session.access_token, email: session.user?.email || null });
+    st().setAuth({ token: session.access_token, email: session.user?.email || null, uid: session.user?.id || null });
     if(!_loginFlowDone && (event === 'INITIAL_SESSION' || event === 'SIGNED_IN')){
       _loginFlowDone = true;
       st().hideWelcome();
@@ -46,13 +46,13 @@ const { data: { subscription: _authSub } } = supabase.auth.onAuthStateChange((ev
       setTimeout(() => { pendingSave ? saveAllToCloud() : tryAutoLoadFromCloud(); }, 0);
     }
   }else if(event === 'SIGNED_OUT'){
-    st().setAuth({ token: null, email: null });
+    st().setAuth({ token: null, email: null, uid: null });
   }
 });
 
 export function logoutGoogle(){
   supabase.auth.signOut().then(({ error }) => { if(error) toast('登出失敗：' + error.message); });
-  st().setAuth({ token: null, email: null });
+  st().setAuth({ token: null, email: null, uid: null });
   toast('已登出，改以訪客身分使用');
 }
 export function openLogoutConfirm(){
@@ -288,6 +288,7 @@ export async function saveAllToCloud(opts = {}){
       await db.deleteIds(t, missing(t));
 
     _lastCloudSnapshot = snapAtStart;
+    markCloudOwner();   // 儲存成功＝本機資料歸屬此帳號（V65 換帳號守門）
     const { documents, termBase, tmSegments } = st();
     const now = new Date();
     const hhmm = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
@@ -453,6 +454,7 @@ function applyCloudDataInPlace(next){
     termTip: null
   }));
   _lastCloudSnapshot = cloudSnapshot();
+  markCloudOwner();
 }
 
 /* 斷線重連追趕：比對「現在的雲端」vs「最後已知的雲端」（不是 vs 本機——
@@ -491,6 +493,37 @@ export async function catchUpAfterReconnect(){
 let _syncPendingCheck = () => false;
 export function registerSyncPendingCheck(fn){ _syncPendingCheck = fn; }
 
+/* ---------------- V65 換帳號守門：本機 persist 不分帳號的錯帳防護（健檢中-1） ----------------
+   Phase 0 的 catToolWorkData 是單一鍵、登出刻意保留資料——同一瀏覽器先用 A 帳號、
+   再登 B 帳號時，本機還躺著 A 的資料。localStorage 另記「最後同步的帳號」（uid＋email），
+   登入帳號與上次不同且本機有資料時：雲端全空不再靜默沿用（原路徑會讓 A 的資料
+   隨下次儲存整套寫進 B 帳號）、雲端非空則在既有覆蓋確認上加註警語。
+   帳號標記只在「本機與該帳號雲端完成對時」時蓋（全量儲存成功／載入／內容一致），
+   選「保留本機」不蓋——待使用者真的儲存進新帳號才更新 */
+const OWNER_KEY = 'catToolCloudOwner';
+function getCloudOwner(){
+  try{ return JSON.parse(localStorage.getItem(OWNER_KEY)); }catch(e){ return null; }
+}
+function markCloudOwner(){
+  const { uid, email } = st().auth;
+  if(!uid) return;
+  try{ localStorage.setItem(OWNER_KEY, JSON.stringify({ uid, email: email || '' })); }catch(e){ /* 無痕模式等寫入失敗：只影響下次守門判斷 */ }
+}
+/* 換帳號後選「清空本機」：以空資料開始（原帳號資料仍在其雲端不受影響） */
+function clearLocalWorkData(){
+  useStore.setState({
+    documents: [], termBase: [], tmSegments: [], folders: [], comments: [],
+    currentDocId: null,
+    lastFocusedSegId: null,
+    collapsedFolders: new Set(),
+    termTip: null,
+    srUndoSnapshot: null,
+    currentTab: 'ingest'      // 空資料起步：帶到入稿區開始建檔
+  });
+  _lastCloudSnapshot = cloudSnapshot();   // 空＝與這個帳號的空雲端同步
+  markCloudOwner();
+}
+
 /* ---------------- 載入：登入後自動比對雲端與本機 ----------------
    Phase 0 persist 後本機是首載前的資料源，返站每次都彈「覆蓋確認」會變騷擾，
    故先撈雲端做內容比對：一致→靜默視為已同步；本機空→直接載入；不一致→才彈確認（同 V45 防覆蓋精神）。
@@ -523,6 +556,7 @@ function applyCloudData(next){
     currentTab: 'projects'     // 載入完成直接帶到專案區看見文件清單
   });
   _lastCloudSnapshot = cloudSnapshot();   // 剛載入＝與雲端同步
+  markCloudOwner();
 }
 
 /* ---------------- V54 使用者偏好同步（user_prefs 單列 jsonb） ----------------
@@ -569,9 +603,24 @@ export async function tryAutoLoadFromCloud(){
     const local = { documents: s.documents, termBase: s.termBase, tmSegments: s.tmSegments, folders: s.folders, comments: s.comments };
     const cloudHas = next.documents.length || next.termBase.length || next.tmSegments.length || next.folders.length || next.comments.length;
     const localHas = local.documents.length || local.termBase.length || local.tmSegments.length || local.folders.length || local.comments.length;
-    if(!cloudHas) return;   // 雲端全空（首次使用）：沿用本機，等第一次儲存
+    // V65 換帳號守門（健檢中-1）：本機有資料、上次同步的是另一個帳號才啟動
+    const owner = getCloudOwner();
+    const accountSwitched = !!(localHas && owner && owner.uid && s.auth.uid && owner.uid !== s.auth.uid);
+    if(!cloudHas){
+      if(!accountSwitched) return;   // 雲端全空（首次使用/同帳號）：沿用本機，等第一次儲存
+      // 換帳號＋新帳號雲端全空：原路徑會靜默沿用舊帳號資料、下次儲存整套寫進新帳號＝錯帳
+      st().openConfirm({
+        title:'帳號已切換',
+        text:`本機資料上次同步的帳號是 ${owner.email || '另一個帳號'}，\n目前登入的是 ${s.auth.email || '新帳號'}，這個帳號的雲端目前沒有資料。\n保留本機資料：之後儲存會把這些資料寫入目前帳號\n清空本機資料：以空資料開始（原帳號的雲端資料不受影響）`,
+        cancelLabel:'保留本機資料', okLabel:'清空本機資料',
+        onOk: clearLocalWorkData,
+        wide: true
+      });
+      return;
+    }
     if(canonSnapshot(local) === canonSnapshot(next)){
       _lastCloudSnapshot = cloudSnapshot();   // 內容一致：靜默標記已同步，不動畫面
+      markCloudOwner();
       return;
     }
     const doLoad = async () => {
@@ -583,7 +632,8 @@ export async function tryAutoLoadFromCloud(){
     if(!localHas){ await doLoad(); return; }
     st().openConfirm({
       title:'載入雲端資料',
-      text:'雲端資料與本機不符！\n載入雲端資料：載入後會覆蓋目本機內容\n保留本機資料：保留後需按「儲存至雲端」覆寫',
+      text: (accountSwitched ? `注意：本機資料上次同步的帳號是 ${owner.email || '另一個帳號'}，與目前登入帳號不同！\n` : '')
+        + '雲端資料與本機不符！\n載入雲端資料：載入後會覆蓋目本機內容\n保留本機資料：保留後需按「儲存至雲端」覆寫',
       cancelLabel:'保留本機資料', okLabel:'載入雲端資料',
       onOk: () => { doLoad().catch(err => toast('雲端載入失敗：' + (err.message || String(err)))); },
       wide: true

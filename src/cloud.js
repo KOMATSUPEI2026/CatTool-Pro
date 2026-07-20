@@ -165,6 +165,11 @@ const tmRow = (t, i) => rowToSnake({
   id: t.id, ja: t.ja || '', zh: t.zh || '', source: t.source || '',
   srcLang: t.srcLang || '', tgtLang: t.tgtLang || '', position: i
 });
+const termRow = (t, i) => rowToSnake({
+  clientId: CLIENT_ID,
+  id: t.id, ja: t.ja || '', zh: t.zh || '', note: t.note || '', source: t.source || '',
+  srcLang: t.srcLang || '', tgtLang: t.tgtLang || '', tag: t.tag || '', position: i
+});
 const commentRow = (c, i) => rowToSnake({
   clientId: CLIENT_ID,
   id: c.id, docId: c.docId, segId: c.segId,
@@ -183,11 +188,7 @@ function serializeForCloud(){
     rows.documents.push(docRow(d, i));
     d.segments.forEach((s, j) => rows.segments.push(segRow(s, d.id, j)));
   });
-  termBase.forEach((t, i) => rows.terms.push(rowToSnake({
-    clientId: CLIENT_ID,
-    id: t.id, ja: t.ja || '', zh: t.zh || '', note: t.note || '', source: t.source || '',
-    srcLang: t.srcLang || '', tgtLang: t.tgtLang || '', tag: t.tag || '', position: i
-  })));
+  termBase.forEach((t, i) => rows.terms.push(termRow(t, i)));
   tmSegments.forEach((t, i) => rows.tm.push(tmRow(t, i)));
   comments.forEach((c, i) => rows.comments.push(commentRow(c, i)));
   return rows;
@@ -380,6 +381,54 @@ function patchSnapshotAfterSegSave(docId, segId, tmId){
 /* 歷史側欄查詢：回傳 [{id, zh, saved_at}]，新→舊 */
 export function fetchSegHistory(segId){
   return db.fetchSegHistory(segId);
+}
+
+/* ---------------- V69 術語即存：新增/編輯術語當下即上傳該列 ----------------
+   比照 saveSegmentNow 的單列冪等 upsert（terms 無外鍵，較句段更單純、無 23503 fallback）。
+   只保「這一列的內容即時進雲端」＝防當機遺失；position 與已同步快照的收斂交全量保底：
+   addTerm 前插會位移其餘列的 position，單列 upsert 無法一次修正全部，故刻意不修補 _lastCloudSnapshot
+   （hasUnsavedChanges 維持 true → 閒置全量存重寫全部 position，比照 saveSegmentNow 對「中間插入」的處置）。
+   訪客/全量存進行中一律靜默跳過（保底機制會補）。入口＝翻譯工作區術語 Modal 新增/編輯送出（離散提交，
+   非術語庫的逐鍵 inline 編輯——後者留給閒置保底，逐鍵即存會變成一次編輯打數十次 upsert） */
+export async function saveTermNow(id){
+  const s = st();
+  if(!s.auth.token || s.cloudBusy) return;
+  const idx = s.termBase.findIndex(t => t.id === id);
+  if(idx < 0) return;
+  try{
+    await db.upsert('terms', [termRow(s.termBase[idx], idx)]);
+  }catch(err){
+    toast('術語即時儲存失敗：' + (err.message || String(err)));
+  }
+}
+
+/* ---------------- V69 刪除即存：刪術語/TM 列當下即從雲端移除該列 ----------------
+   單列 db.deleteIds（不走 saveAllToCloud 的比對刪除，故無 V67 中-A 的多視窗誤刪風險——
+   刪的是明確一個 id，不是「雲端有而本機無」的推斷）。刪一列是位置安全的（其餘列 position
+   留空隙不影響排序），故可安心從已同步快照移除該列：無其他未存變動時 hasUnsavedChanges 即歸
+   false（乾淨即存）；有其他未存變動則維持 true 交全量保底，修補永不誤標已同步。
+   注意：TM 刪除另有相依句段退回未確認的連帶效果（decision 1），走 autoSaveAfterSegTool 全量存
+   一併帶上句段變更、不走這條單列路徑；本函式現役入口只有術語刪除。訪客/全量存進行中靜默跳過 */
+export async function deleteRowNow(table, id){
+  const s = st();
+  if(!s.auth.token || s.cloudBusy) return;
+  try{
+    await db.deleteIds(table, [id]);
+    patchSnapshotAfterDelete(table, id);
+  }catch(err){
+    toast('刪除即時儲存失敗：' + (err.message || String(err)));
+  }
+}
+
+function patchSnapshotAfterDelete(table, id){
+  const key = { terms: 'termBase', tm: 'tmSegments' }[table];
+  if(!key) return;
+  try{
+    const snap = JSON.parse(_lastCloudSnapshot);
+    if(!Array.isArray(snap[key])) return;
+    snap[key] = snap[key].filter(x => x.id !== id);
+    _lastCloudSnapshot = JSON.stringify(snap);
+  }catch(e){ /* 快照修補失敗只影響「是否再多存一次」，不影響資料正確性 */ }
 }
 
 /* ---------------- Phase 3 即時同步：遠端變更套用層 ----------------

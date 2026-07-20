@@ -3,7 +3,7 @@ import { useStore } from '../store.js';
 import { cid, docStats, docPair, findTermHits, langName } from '../utils.js';
 import { exportDocs } from '../exporters.js';
 import { autoGrow, autoGrowAll, insertIntoSeg } from '../workActions.js';
-import { saveSegmentNow } from '../cloud.js';
+import { saveSegmentNow, saveTermNow, deleteRowNow } from '../cloud.js';
 import ConfirmModal from '../components/ConfirmModal.jsx';
 import TermTip from '../components/TermTip.jsx';
 import TermModal from '../components/TermModal.jsx';
@@ -311,9 +311,12 @@ export default function WorkTab() {
   const onTermSubmit = (ja, zh, note, tag) => {
     if (modal.term) {
       patchTerm(modal.term.id, { ja, zh, note, tag: tag || '' });
+      saveTermNow(modal.term.id);   // V69：編輯送出即存（術語 Modal 是離散提交，非逐鍵 inline）
     } else {
       const p = docPair(doc);
-      addTerm({ id: cid(), ja, zh, note, tag: tag || '', source: doc ? doc.name : '', srcLang: p.src, tgtLang: p.tgt });
+      const id = cid();
+      addTerm({ id, ja, zh, note, tag: tag || '', source: doc ? doc.name : '', srcLang: p.src, tgtLang: p.tgt });
+      saveTermNow(id);   // V69：反白/提示卡新增術語即存
     }
     setModal(null);
   };
@@ -425,7 +428,7 @@ export default function WorkTab() {
       {modal?.type === 'delTerm' &&
         <ConfirmModal title="刪除術語" cancelLabel="取消刪除" okLabel="確定刪除"
                       onCancel={() => setModal(null)}
-                      onOk={() => { deleteTerm(modal.term.id); setModal(null); }}>
+                      onOk={() => { deleteTerm(modal.term.id); deleteRowNow('terms', modal.term.id); setModal(null); }}>
           確定要刪除術語嗎？此操作無法復原。
         </ConfirmModal>}
 

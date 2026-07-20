@@ -110,7 +110,8 @@ export default function TmTab() {
                 <td><span className="source-tag">{t.srcLang || 'ja'}&nbsp;▶&nbsp;{t.tgtLang || 'zh-TW'}</span></td>
                 <td><span className="source-tag">{t.source || '—'}</span></td>
                 <td>
-                  <button className="row-del" data-tmid={t.id} title="刪除" onClick={() => deleteTmSegment(t.id)}>
+                  <button className="row-del" data-tmid={t.id} title="刪除"
+                          onClick={() => { deleteTmSegment(t.id); autoSaveAfterSegTool(); }}>
                     <i className="bi bi-x-lg"></i>
                   </button>
                 </td>

@@ -6,7 +6,7 @@ import ExportModal from '../components/ExportModal.jsx';
 import ImportConfirmModal from '../components/ImportConfirmModal.jsx';
 import { exportTerms } from '../exporters.js';
 import { parseTermsFile, dedupeRows } from '../importers.js';
-import { autoSaveAfterSegTool } from '../cloud.js';
+import { autoSaveAfterSegTool, deleteRowNow } from '../cloud.js';
 
 function TermRow({ t }) {
   const updateTerm = useStore(s => s.updateTerm);
@@ -41,7 +41,8 @@ function TermRow({ t }) {
                onChange={e => updateTerm(t.id, 'note', e.target.value)} />
       </td>
       <td>
-        <button className="row-del" data-id={t.id} title="刪除" onClick={() => deleteTerm(t.id)}>
+        <button className="row-del" data-id={t.id} title="刪除"
+                onClick={() => { deleteTerm(t.id); deleteRowNow('terms', t.id); }}>
           <i className="bi bi-x-lg"></i>
         </button>
       </td>

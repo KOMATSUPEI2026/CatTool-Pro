@@ -804,7 +804,7 @@ ul, ol { list-style: none; padding: 0; }
   .modal-confirm-text{font-size:var(--fs-md);color:var(--ink);line-height:1.7;margin:0 0 4px;text-wrap:balance;overflow-wrap:break-word;}
   .modal-card.modal-card-center{text-align:center;}
   .modal-card.modal-card-center h3{text-align:center;color:var(--vermilion);}
-  .modal-card.modal-card-center .modal-confirm-text{text-align:center;color:var(--vermilion);margin-bottom:22px;}
+  .modal-card.modal-card-center .modal-confirm-text{text-align:center;color:var(--vermilion);margin-bottom:22px;line-height:1.85;}
   .modal-actions.modal-actions-center{justify-content:center;gap:14px;}
   .btn.large{padding:14px 28px;font-size:var(--fs-md);border-radius:var(--radius);}
 

@@ -282,7 +282,7 @@ export async function saveAllToCloud(opts = {}){
     if(opts.auto) return;   // 訪客不打擾（自動儲存守門，同 V45）
     st().openConfirm({
       title:'尚未登入',
-      text:'儲存至雲端前，請先登入 Google 帳號。\n登入會離開再返回本頁（資料已保存在本機，不會遺失），\n返回後會自動完成這次儲存。',
+      text:'儲存至雲端前，請先登入 Google 帳號。\n登入會短暫離開再返回本頁\n（資料已存在本機、不會遺失），\n返回後自動完成這次儲存。',
       cancelLabel:'取消', okLabel:'立即登入',
       onOk: () => { requestGoogleLogin({ pendingSave: true }).catch(() => {}); },
       wide: true
@@ -564,7 +564,7 @@ export async function catchUpAfterReconnect(){
   await new Promise((resolve) => {
     st().openConfirm({
       title:'雲端資料已變更',
-      text:'連線中斷期間，雲端（其他視窗／裝置）與本機都有變更。\n\n載入雲端：以雲端覆蓋本機（本機未儲存的修改會消失）\n保留本機：本機不動，之後儲存會用本機覆蓋雲端（含其他裝置的變更）',
+      text:'連線中斷期間，雲端與本機都有變更。\n\n載入雲端：用雲端覆蓋本機\n（本機未儲存的修改會消失）\n\n保留本機：用本機覆蓋雲端\n（會蓋掉其他裝置的變更）',
       cancelLabel:'保留本機', okLabel:'載入雲端（覆蓋本機）',
       onOk: () => {
         // 載入失敗不 resolve：維持全量自動存暫停（本機不可反手蓋掉雲端），下次重連再走一輪追趕
@@ -727,7 +727,7 @@ export async function tryAutoLoadFromCloud(manual = false){
         // 換帳號＋新帳號雲端全空：原路徑會靜默沿用舊帳號資料、下次儲存整套寫進新帳號＝錯帳
         st().openConfirm({
           title:'帳號已切換',
-          text:`本機上次同步的帳號是 ${owner.email || '另一個帳號'}，目前登入的是 ${s.auth.email || '新帳號'}，這個帳號的雲端目前沒有資料。\n\n保留本機：之後儲存會把這些資料寫入目前帳號\n清空本機：以空資料開始（原帳號的雲端資料不受影響）`,
+          text:`本機上次同步的帳號與目前登入的不同，\n且目前帳號的雲端沒有資料。\n目前：${s.auth.email || '新帳號'}\n上次：${owner.email || '另一個帳號'}\n\n保留本機：資料會寫入目前帳號\n清空本機：以空資料重新開始`,
           cancelLabel:'保留本機資料', okLabel:'清空本機資料',
           onOk: clearLocalWorkData,
           wide: true
@@ -740,7 +740,7 @@ export async function tryAutoLoadFromCloud(manual = false){
       if(manual && localHas){
         st().openConfirm({
           title:'雲端目前沒有資料',
-          text:'雲端這個帳號目前沒有任何資料（可能已在其他裝置清空）。\n\n清空本機：與雲端同步、本機一併清空\n保留本機：本機不動，下次儲存會把本機重新寫回雲端（可能復活已清空的資料）',
+          text:'雲端目前沒有任何資料，\n可能已在其他裝置清空。\n\n清空本機：與雲端一起清空\n\n保留本機：下次儲存會寫回雲端\n（可能復活已清空的資料）',
           cancelLabel:'保留本機資料', okLabel:'清空本機資料',
           onOk: clearLocalWorkData,
           wide: true
@@ -764,10 +764,10 @@ export async function tryAutoLoadFromCloud(manual = false){
     // 下次全存以陳舊本機覆蓋雲端（復活別台刪除、蓋別台編輯）
     st().openConfirm({
       title:'雲端與本機不一致',
-      text: (accountSwitched ? `注意：本機上次同步的帳號（${owner.email || '另一個帳號'}）與目前登入的不同！\n\n` : '')
-        + `雲端 ${next.documents.length} 份文件 · 本機 ${local.documents.length} 份文件，內容不一致。\n\n`
-        + '載入雲端：以雲端覆蓋本機（本機這台未儲存的修改會消失）\n'
-        + '保留本機：本機不動，下次儲存會用本機覆蓋雲端（含其他裝置的變更）',
+      text: (accountSwitched ? `注意：本機上次同步的帳號與目前登入的不同！\n（上次：${owner.email || '另一個帳號'}）\n\n` : '')
+        + `雲端 ${next.documents.length} 份文件、本機 ${local.documents.length} 份文件，內容不同。\n\n`
+        + '載入雲端：用雲端覆蓋本機\n（本機未儲存的修改會消失）\n\n'
+        + '保留本機：用本機覆蓋雲端\n（會蓋掉其他裝置的變更）',
       cancelLabel:'保留本機', okLabel:'載入雲端',
       onOk: () => { doLoad().catch(err => toast('雲端載入失敗：' + (err.message || String(err)))); },
       wide: true

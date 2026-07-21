@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useStore } from '../store.js';
 import { cid, segmentText, uniqueDocName, langName, LANG_NAMES } from '../utils.js';
 import { parseXliffString, parseDocxFile } from '../importers.js';
+import { autoSaveAfterSegTool } from '../cloud.js';
 
 const SRC_OPTS = ['ja', 'zh-TW', 'zh-HK', 'zh-CN', 'zh-SG', 'en', 'en-US', 'en-GB', 'ko', 'fr', 'de', 'es', 'vi', 'th'];
 const TGT_OPTS = ['zh-TW', 'zh-HK', 'zh-CN', 'zh-SG', 'en', 'en-US', 'en-GB', 'ja', 'ko', 'fr', 'de', 'es', 'vi', 'th'];
@@ -50,6 +51,7 @@ export default function IngestTab() {
       segments: parts.map(p => ({ id: cid(), ja: p, zh: '', confirmed: false, reviewed: false, tmId: null })),
       createdAt: now, updatedAt: now
     }]);
+    autoSaveAfterSegTool();   // V72 入稿即存（新文件不觸發空夾消滅→無孤兒風險；upsert 順序 doc→seg 安全）
     setRawText('');
     setDocName('');
   };
@@ -175,6 +177,7 @@ export default function IngestTab() {
       });
     });
     addDocuments(docs);
+    autoSaveAfterSegTool();   // V72 入稿即存（xlsx／XLIFF／docx 批次建檔共用此出口）
     // 重置暫存與 UI
     setStaged(null);
     setPrefix('');

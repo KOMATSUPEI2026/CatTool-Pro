@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { useStore } from '../store.js';
 import { docStats, docStatus, fmtDate } from '../utils.js';
 import { exportDocs } from '../exporters.js';
+import { saveRowNow, saveRowsNow } from '../cloud.js';
 import Dashboard from '../components/Dashboard.jsx';
 import NewFolderModal from '../components/NewFolderModal.jsx';
 import { NameEditor, RenameListModal, MoveDocsModal, DeleteBatchModal, ExportDocsModal }
@@ -141,12 +142,14 @@ export default function ProjectsTab() {
     if (!doc || !name || name === doc.name) return;
     if (documents.some(d => d.id !== docId && d.name === name)) { showToast('已有同名檔案，未改名'); return; }
     renameDocument(docId, name);
+    saveRowNow('documents', docId);   // V72 更名即存（單列 upsert，不碰比對刪除）
   };
   const applyFolderName = (folderId, raw) => {
     const name = raw.trim();
     const folder = folders.find(f => f.id === folderId);
     if (!folder || !name || name === folder.name) return;
     renameFolder(folderId, name);
+    saveRowNow('folders', folderId);   // V72 更名即存
   };
   const commitDocName = (docId, raw) => { setEditing(null); applyDocName(docId, raw); };
   const commitFolderName = (folderId, raw) => { setEditing(null); applyFolderName(folderId, raw); };
@@ -178,7 +181,11 @@ export default function ProjectsTab() {
   const endDrag = () => { setDragDocId(null); setDragOver(null); };
   const dropTo = (e, folderId) => {
     const docId = e.dataTransfer.getData('text/plain') || dragDocId;
-    if (docId) setDocFolder(docId, folderId);
+    const doc = docId && documents.find(d => d.id === docId);
+    if (doc && (doc.folderId || null) !== (folderId || null)) {
+      setDocFolder(docId, folderId);
+      saveRowNow('documents', docId);   // V72 歸類即存（單列 upsert；空來源夾的雲端刪除交保底）
+    }
     endDrag();
   };
   const dragLeaveOf = (key) => setDragOver(cur => (cur === key ? null : cur));
@@ -301,7 +308,12 @@ export default function ProjectsTab() {
                        onClose={() => setModal(null)}
                        onSubmit={targetId => {
                          const ids = selDocIds();
+                         const moved = ids.filter(id => {   // 只上傳資料夾真的變動的（避開移到原夾的無謂 upsert）
+                           const d = documents.find(x => x.id === id);
+                           return d && (d.folderId || null) !== (targetId || null);
+                         });
                          moveDocsToFolder(ids, targetId);
+                         saveRowsNow('documents', moved);   // V72 批次歸類即存（同表多列一次 upsert）
                          setCheckedDocs(new Set());
                          setModal(null);
                          showToast(`已移動 ${ids.length} 件文件`);

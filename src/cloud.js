@@ -436,6 +436,50 @@ function patchSnapshotAfterDelete(table, id){
   }catch(e){ /* 快照修補失敗只影響「是否再多存一次」，不影響資料正確性 */ }
 }
 
+/* ---------------- V72 更名／歸類即存：改名或拖曳歸類當下即上傳被動到的列 ----------------
+   單表單列（或同表多列）冪等 upsert，比照 V69 術語即存：不走 saveAllToCloud 的比對刪除，故
+   （1）無 V67 中-A 多視窗誤刪風險；（2）刻意不碰「空資料夾自動消滅」的雲端刪除——那條刪除留給
+   保底全量存，不把 folder DELETE 硬塞進並發窗口（避免與別台「拖檔進同一夾」相撞而失敗重試）。
+   rename／歸類都不重排 store 陣列（store actions 走 .map 保持原順序）→ position 不變 → 可安心就地
+   修補快照。documents.folder_id 有外鍵（NO ACTION）：目標資料夾還沒上雲（23503）→ 退全量存
+   （先建夾後掛檔）。訪客／全量存進行中一律靜默跳過（保底機制會補）。
+   入口＝專案管理區更名（雙擊／改名 Modal）／拖曳歸類／批次移動 */
+export async function saveRowsNow(table, ids){
+  const s = st();
+  if(!s.auth.token || s.cloudBusy || !ids || !ids.length) return;
+  const want = new Set(ids);
+  const rows = [], items = [];
+  if(table === 'folders'){
+    s.folders.forEach((f, i) => { if(want.has(f.id)){ rows.push({ id: f.id, name: f.name, position: i, client_id: CLIENT_ID }); items.push(f); } });
+  }else if(table === 'documents'){
+    s.documents.forEach((d, i) => { if(want.has(d.id)){ rows.push(docRow(d, i)); items.push(d); } });
+  }else return;
+  if(!rows.length) return;
+  try{
+    await db.upsert(table, rows);
+    patchSnapshotRows(table, items);
+  }catch(err){
+    if(err && err.code === '23503'){ saveAllToCloud({ auto: true }); return; }   // 目標資料夾未上雲：退全量（先建夾）
+    toast('儲存失敗：' + (err.message || String(err)));
+  }
+}
+export const saveRowNow = (table, id) => saveRowsNow(table, [id]);
+
+/* 就地修補已同步快照：rename／歸類位置不變，找到同 id 就整列替換（documents 帶 segments，
+   放回 store 現物件即可）；快照沒這列（如剛全量存前才新增）＝不補，維持未同步交保底，永不誤標已同步 */
+function patchSnapshotRows(table, items){
+  try{
+    const snap = JSON.parse(_lastCloudSnapshot);
+    const arr = snap[table];   // folders/documents 的 DB 表名恰與 store 鍵名同
+    if(!Array.isArray(arr)) return;
+    items.forEach(item => {
+      const j = arr.findIndex(x => x.id === item.id);
+      if(j >= 0) arr[j] = item;
+    });
+    _lastCloudSnapshot = JSON.stringify(snap);
+  }catch(e){ /* 快照修補失敗只影響「是否再多存一次」，不影響資料正確性 */ }
+}
+
 /* ---------------- Phase 3 即時同步：遠端變更套用層 ----------------
    realtime.js（傳輸層）收到 postgres_changes 事件後呼叫 applyRemoteChange，
    本模組負責把單列變更套進 store 與「已同步快照」（遠端變更＝雲端現狀，

@@ -679,7 +679,7 @@ async function syncPrefsWithCloud(){
   }catch(e){ /* user_prefs 表未建等情況：偏好退回純本機，不擋工作資料載入 */ }
 }
 
-export async function tryAutoLoadFromCloud(){
+export async function tryAutoLoadFromCloud(manual = false){
   syncPrefsWithCloud();   // 偏好與五表載入互不阻擋（各自 try/catch）
   try{
     const next = await fetchAllFromCloud();
@@ -691,16 +691,30 @@ export async function tryAutoLoadFromCloud(){
     const owner = getCloudOwner();
     const accountSwitched = !!(localHas && owner && owner.uid && s.auth.uid && owner.uid !== s.auth.uid);
     if(!cloudHas){
-      if(!accountSwitched) return;   // 雲端全空（首次使用/同帳號）：沿用本機，等第一次儲存
-      // 換帳號＋新帳號雲端全空：原路徑會靜默沿用舊帳號資料、下次儲存整套寫進新帳號＝錯帳
-      st().openConfirm({
-        title:'帳號已切換',
-        text:`本機資料上次同步的帳號是 ${owner.email || '另一個帳號'}，\n目前登入的是 ${s.auth.email || '新帳號'}，這個帳號的雲端目前沒有資料。\n保留本機資料：之後儲存會把這些資料寫入目前帳號\n清空本機資料：以空資料開始（原帳號的雲端資料不受影響）`,
-        cancelLabel:'保留本機資料', okLabel:'清空本機資料',
-        onOk: clearLocalWorkData,
-        wide: true
-      });
-      return;
+      if(accountSwitched){
+        // 換帳號＋新帳號雲端全空：原路徑會靜默沿用舊帳號資料、下次儲存整套寫進新帳號＝錯帳
+        st().openConfirm({
+          title:'帳號已切換',
+          text:`本機資料上次同步的帳號是 ${owner.email || '另一個帳號'}，\n目前登入的是 ${s.auth.email || '新帳號'}，這個帳號的雲端目前沒有資料。\n保留本機資料：之後儲存會把這些資料寫入目前帳號\n清空本機資料：以空資料開始（原帳號的雲端資料不受影響）`,
+          cancelLabel:'保留本機資料', okLabel:'清空本機資料',
+          onOk: clearLocalWorkData,
+          wide: true
+        });
+        return;
+      }
+      // V70 同帳號雲端全空：自動載入沿用本機（首次使用防呆、不驚嚇本機 persist 草稿）；
+      // 手動「重新載入」且本機有資料＝使用者明確要求對齊雲端（如另一裝置已清空雲端），
+      // 改彈確認讓其二選一（清空本機同步／保留本機待回寫），不再靜默 return 讓按鈕看似無反應
+      if(manual && localHas){
+        st().openConfirm({
+          title:'雲端目前沒有資料',
+          text:'雲端這個帳號目前沒有任何資料（可能已在其他裝置清空）。\n清空本機資料：與雲端同步、本機一併清空\n保留本機資料：保留後需按「儲存至雲端」才會把本機寫回雲端',
+          cancelLabel:'保留本機資料', okLabel:'清空本機資料',
+          onOk: clearLocalWorkData,
+          wide: true
+        });
+      }
+      return;   // 雲端全空（首次使用／同帳號自動載入／本機也空）：沿用本機，等第一次儲存
     }
     if(canonSnapshot(local) === canonSnapshot(next)){
       _lastCloudSnapshot = cloudSnapshot();   // 內容一致：靜默標記已同步，不動畫面

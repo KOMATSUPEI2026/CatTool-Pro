@@ -17,7 +17,7 @@ export default function AccountModal({ onClose }) {
         </p>
         <div className="modal-actions modal-actions-center">
           <button className="btn outline" data-role="reload"
-                  onClick={() => { onClose(); tryAutoLoadFromCloud(); }}>重新載入</button>
+                  onClick={() => { onClose(); tryAutoLoadFromCloud(true); }}>重新載入</button>
           <button className="btn outline" data-role="logout" onClick={() => { onClose(); openLogoutConfirm(); }}>登出帳號</button>
         </div>
       </div>

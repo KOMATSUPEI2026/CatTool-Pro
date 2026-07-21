@@ -801,7 +801,7 @@ ul, ol { list-style: none; padding: 0; }
   }
   .term-tip .zh-chip:hover{background:rgba(255,255,255,0.18);text-decoration:underline;}
   .term-tip .sep{color:var(--tooltip-sep);}
-  .modal-confirm-text{font-size:var(--fs-md);color:var(--ink);line-height:1.6;margin:0 0 4px;}
+  .modal-confirm-text{font-size:var(--fs-md);color:var(--ink);line-height:1.7;margin:0 0 4px;text-wrap:balance;overflow-wrap:break-word;}
   .modal-card.modal-card-center{text-align:center;}
   .modal-card.modal-card-center h3{text-align:center;color:var(--vermilion);}
   .modal-card.modal-card-center .modal-confirm-text{text-align:center;color:var(--vermilion);margin-bottom:22px;}
@@ -1015,9 +1015,11 @@ ul, ol { list-style: none; padding: 0; }
   .toast{
     position:fixed;top:24px;left:50%;transform:translateX(-50%) translateY(-8px);z-index:var(--z-toast);
     background:var(--tooltip-bg);color:var(--tooltip-text);
-    font-family:var(--font-ui);font-size:var(--fs-md);font-weight:600;
-    padding:10px 16px;border-radius:var(--radius);box-shadow:var(--shadow-3);
-    max-width:calc(100vw - 48px);opacity:0;pointer-events:none;
+    font-family:var(--font-ui);font-size:var(--fs-md);font-weight:600;line-height:1.6;
+    padding:12px 18px;border-radius:var(--radius);box-shadow:var(--shadow-3);
+    /* 收窄成可讀欄寬＋均勻換行：長訊息（如「儲存未完成…」）不再橫貫整個螢幕成一長行 */
+    max-width:min(460px, calc(100vw - 48px));text-align:center;text-wrap:balance;overflow-wrap:break-word;
+    opacity:0;pointer-events:none;
     transition:opacity .2s, transform .2s;
   }
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}

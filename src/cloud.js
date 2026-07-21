@@ -120,16 +120,21 @@ export const db = {
       .limit(5));
   },
   // V54：使用者偏好（user_prefs 一人一列 jsonb；RLS 只見自己的列）；無列回 null
+  // V71 中-4：連同 updated_at 一起回（＝伺服器時鐘，跑 V71 SQL 後由 trigger 蓋）＝跨裝置 LWW 的單一時鐘基準
   async fetchPrefs(){
-    const rows = _ok(await supabase.from('user_prefs').select('prefs').limit(1));
-    return rows.length ? rows[0].prefs : null;
+    const rows = _ok(await supabase.from('user_prefs').select('prefs, updated_at').limit(1));
+    return rows.length ? { prefs: rows[0].prefs, serverAt: Date.parse(rows[0].updated_at) || 0 } : null;
   },
+  // 回傳這次寫入後的伺服器 updated_at（讀回）＝本裝置「已同步到的雲端偏好版本時戳」；訪客回 0
   async upsertPrefs(prefs){
     const { data: { session } } = await supabase.auth.getSession();
     const uid = session?.user?.id;
-    if(!uid) return;   // 訪客/登出瞬間：偏好留在 localStorage 即可
-    _ok(await supabase.from('user_prefs')
-      .upsert({ user_id: uid, prefs, updated_at: new Date().toISOString() }, { onConflict: 'user_id' }));
+    if(!uid) return 0;   // 訪客/登出瞬間：偏好留在 localStorage 即可
+    // 仍送 client updated_at 當「未跑 V71 SQL」時的後備；跑了 trigger 會以 now() 覆蓋（讀回即伺服器時鐘）
+    const rows = _ok(await supabase.from('user_prefs')
+      .upsert({ user_id: uid, prefs, updated_at: new Date().toISOString() }, { onConflict: 'user_id' })
+      .select('updated_at'));
+    return rows.length ? (Date.parse(rows[0].updated_at) || 0) : 0;
   }
 };
 
@@ -559,7 +564,7 @@ export async function catchUpAfterReconnect(){
   await new Promise((resolve) => {
     st().openConfirm({
       title:'雲端資料已變更',
-      text:'連線中斷期間，雲端（其他視窗或裝置）與本機都有變更。\n載入雲端會覆蓋本機未儲存的修改；\n保留本機則之後儲存會以本機為準回寫。',
+      text:'連線中斷期間，雲端（其他視窗／裝置）與本機都有變更。\n\n載入雲端：以雲端覆蓋本機（本機未儲存的修改會消失）\n保留本機：本機不動，之後儲存會用本機覆蓋雲端（含其他裝置的變更）',
       cancelLabel:'保留本機', okLabel:'載入雲端（覆蓋本機）',
       onOk: () => {
         // 載入失敗不 resolve：維持全量自動存暫停（本機不可反手蓋掉雲端），下次重連再走一輪追趕
@@ -644,18 +649,33 @@ function applyCloudData(next){
 }
 
 /* ---------------- V54 使用者偏好同步（user_prefs 單列 jsonb） ----------------
-   低風險資料走「最後寫入者贏」：prefs.updatedAt 比大小對時，不彈確認、不掛 Realtime。
-   上傳＝訂閱 store 的 prefs 參照變化（debounce 2 秒）；剛從雲端套用的那次以時間戳擋回聲 */
+   低風險資料走「最後寫入者贏」，不彈確認、不掛 Realtime；上傳＝訂閱 store 的 prefs 參照變化（debounce 2 秒），
+   剛從雲端套用的那次以 prefs.updatedAt（本機 client 時戳，同機用於擋回聲/偵測本機變更）擋回聲。
+   V71 中-4：跨裝置 LWW 的判斷改用「伺服器時鐘」——本機持久化「上次同步到的雲端偏好版本伺服器時戳」
+   （_prefsSyncedServerAt，localStorage 鍵 catToolPrefsSyncedAt），比對雲端 serverAt 是否在別台被更新過，
+   不再比兩台各自的 client 時鐘（防時鐘偏移害偏好回退）。首次同步（無 token）沿用舊的 client 時戳比較，
+   以保留訪客期間的本機偏好編輯不被雲端誤蓋。 */
 const PREFS_SAVE_MS = 2000;
+const PREFS_SYNCED_AT_KEY = 'catToolPrefsSyncedAt';
 let _prefsSaveTimer = null;
 let _lastSyncedPrefsAt = -1;
+function getPrefsSyncedServerAt(){
+  const v = Number(localStorage.getItem(PREFS_SYNCED_AT_KEY));
+  return Number.isFinite(v) && localStorage.getItem(PREFS_SYNCED_AT_KEY) !== null ? v : null;
+}
+function setPrefsSyncedServerAt(serverAt){
+  try{ localStorage.setItem(PREFS_SYNCED_AT_KEY, String(serverAt || 0)); }catch(e){ /* 無痕等寫入失敗：退回無 token＝下次走首次同步分支 */ }
+}
 function schedulePrefsSave(){
   if(!st().auth.token) return;   // 訪客：localStorage 已落地，登入時再對時上雲
   clearTimeout(_prefsSaveTimer);
-  _prefsSaveTimer = setTimeout(() => {
+  _prefsSaveTimer = setTimeout(async () => {
     const prefs = st().prefs;
     _lastSyncedPrefsAt = prefs.updatedAt || 0;
-    db.upsertPrefs(prefs).catch(() => { /* 偏好非關鍵資料：失敗靜默，下次變更再試 */ });
+    try{
+      const serverAt = await db.upsertPrefs(prefs);
+      setPrefsSyncedServerAt(serverAt);   // 本裝置已同步到的雲端版本＝這次寫入的伺服器時戳
+    }catch(e){ /* 偏好非關鍵資料：失敗靜默，下次變更再試 */ }
   }, PREFS_SAVE_MS);
 }
 let _prevPrefsRef = st().prefs;
@@ -665,16 +685,28 @@ const _prefsUnsub = useStore.subscribe((s) => {
   if((s.prefs.updatedAt || 0) === _lastSyncedPrefsAt) return;   // setPrefsFromCloud 的回聲
   schedulePrefsSave();
 });
-async function syncPrefsWithCloud(){
+export async function syncPrefsWithCloud(){
   try{
-    const cloud = await db.fetchPrefs();
+    const cloud = await db.fetchPrefs();   // { prefs, serverAt } | null
     const local = st().prefs;
-    if(cloud && (cloud.updatedAt || 0) >= (local.updatedAt || 0)){
-      _lastSyncedPrefsAt = cloud.updatedAt || 0;
-      st().setPrefsFromCloud(cloud);
+    if(!cloud){
+      _lastSyncedPrefsAt = local.updatedAt || 0;
+      setPrefsSyncedServerAt(await db.upsertPrefs(local));   // 雲端無列：以本機建列
+      return;
+    }
+    const token = getPrefsSyncedServerAt();
+    // 首次同步（本裝置無 token，可能含訪客期間本機編輯）：沿用舊的 client 時戳比較，保留本機較新的編輯；
+    // 穩態（有 token）：以伺服器時鐘判斷雲端是否在別台被更新過，避免兩台 client 時鐘偏移誤判
+    const takeCloud = token == null
+      ? (cloud.prefs?.updatedAt || 0) >= (local.updatedAt || 0)
+      : cloud.serverAt > token;
+    if(takeCloud){
+      _lastSyncedPrefsAt = cloud.prefs?.updatedAt || 0;
+      setPrefsSyncedServerAt(cloud.serverAt);
+      st().setPrefsFromCloud(cloud.prefs);
     } else {
       _lastSyncedPrefsAt = local.updatedAt || 0;
-      await db.upsertPrefs(local);   // 雲端無列或較舊：以本機回寫
+      setPrefsSyncedServerAt(await db.upsertPrefs(local));   // 雲端未在別台更新過：以本機回寫（含本機離線編輯）
     }
   }catch(e){ /* user_prefs 表未建等情況：偏好退回純本機，不擋工作資料載入 */ }
 }
@@ -695,7 +727,7 @@ export async function tryAutoLoadFromCloud(manual = false){
         // 換帳號＋新帳號雲端全空：原路徑會靜默沿用舊帳號資料、下次儲存整套寫進新帳號＝錯帳
         st().openConfirm({
           title:'帳號已切換',
-          text:`本機資料上次同步的帳號是 ${owner.email || '另一個帳號'}，\n目前登入的是 ${s.auth.email || '新帳號'}，這個帳號的雲端目前沒有資料。\n保留本機資料：之後儲存會把這些資料寫入目前帳號\n清空本機資料：以空資料開始（原帳號的雲端資料不受影響）`,
+          text:`本機上次同步的帳號是 ${owner.email || '另一個帳號'}，目前登入的是 ${s.auth.email || '新帳號'}，這個帳號的雲端目前沒有資料。\n\n保留本機：之後儲存會把這些資料寫入目前帳號\n清空本機：以空資料開始（原帳號的雲端資料不受影響）`,
           cancelLabel:'保留本機資料', okLabel:'清空本機資料',
           onOk: clearLocalWorkData,
           wide: true
@@ -708,7 +740,7 @@ export async function tryAutoLoadFromCloud(manual = false){
       if(manual && localHas){
         st().openConfirm({
           title:'雲端目前沒有資料',
-          text:'雲端這個帳號目前沒有任何資料（可能已在其他裝置清空）。\n清空本機資料：與雲端同步、本機一併清空\n保留本機資料：保留後需按「儲存至雲端」才會把本機寫回雲端',
+          text:'雲端這個帳號目前沒有任何資料（可能已在其他裝置清空）。\n\n清空本機：與雲端同步、本機一併清空\n保留本機：本機不動，下次儲存會把本機重新寫回雲端（可能復活已清空的資料）',
           cancelLabel:'保留本機資料', okLabel:'清空本機資料',
           onOk: clearLocalWorkData,
           wide: true
@@ -728,11 +760,15 @@ export async function tryAutoLoadFromCloud(manual = false){
       toast(`已從雲端載入 ${fresh.documents.length} 份文件、${fresh.termBase.length} 條術語、${fresh.tmSegments.length} 句記憶`);
     };
     if(!localHas){ await doLoad(); return; }
+    // 中-3 防呆：兩邊份數並列＋兩個選項的「覆蓋方向」講清楚，避免習慣性點「保留本機」後
+    // 下次全存以陳舊本機覆蓋雲端（復活別台刪除、蓋別台編輯）
     st().openConfirm({
-      title:'載入雲端資料',
-      text: (accountSwitched ? `注意：本機資料上次同步的帳號是 ${owner.email || '另一個帳號'}，與目前登入帳號不同！\n` : '')
-        + '雲端資料與本機不符！\n載入雲端資料：載入後會覆蓋目本機內容\n保留本機資料：保留後需按「儲存至雲端」覆寫',
-      cancelLabel:'保留本機資料', okLabel:'載入雲端資料',
+      title:'雲端與本機不一致',
+      text: (accountSwitched ? `注意：本機上次同步的帳號（${owner.email || '另一個帳號'}）與目前登入的不同！\n\n` : '')
+        + `雲端 ${next.documents.length} 份文件 · 本機 ${local.documents.length} 份文件，內容不一致。\n\n`
+        + '載入雲端：以雲端覆蓋本機（本機這台未儲存的修改會消失）\n'
+        + '保留本機：本機不動，下次儲存會用本機覆蓋雲端（含其他裝置的變更）',
+      cancelLabel:'保留本機', okLabel:'載入雲端',
       onOk: () => { doLoad().catch(err => toast('雲端載入失敗：' + (err.message || String(err)))); },
       wide: true
     });

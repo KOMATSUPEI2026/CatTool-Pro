@@ -293,7 +293,8 @@ export default function ProjectsTab() {
           onCancel={() => setModal(null)}
           onSubmit={name => {
             if (!name) { showToast('請輸入資料夾名稱'); return; }
-            addFolder(name);
+            const id = addFolder(name);
+            saveRowNow('folders', id);   // V73 新增資料夾即存（單列 upsert，folders 無外鍵；新列不修補快照＝位置交保底）
             setModal(null);
           }} />}
 

@@ -235,7 +235,8 @@ export const useStore = create(persist((set) => ({
 
   showToast: (msg) => set(s => ({ toast: { msg, seq: (s.toast?.seq || 0) + 1 } })),
 
-  addFolder: (name) => set(s => ({ folders: [...s.folders, { id: cid(), name }] })),
+  // V73：回傳新資料夾 id 供元件層即存（saveRowNow('folders', id)）；仍是純函式、不夾帶雲端呼叫
+  addFolder: (name) => { const id = cid(); set(s => ({ folders: [...s.folders, { id, name }] })); return id; },
   // 刪資料夾一律走 batchDelete（V58 起專案區工具列批次刪除）＋自動消滅空資料夾（pruneEmptiedFolder），
   // 故不再保留獨立的 deleteFolder action（V66 移除死碼）
   toggleFolder: (folderId) => set(s => {
